@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<package format="3">
+    <name>fixposition_driver_m20</name>
+    <version>8.0.0</version>
+    <description>
+        Deep Robotics M20 localization interface for the Fixposition ROS2 driver: the OEM-facing
+        /ODOM, /LOC_BODY_POINTS and /LOCATION_STATUS topics, and leg odometry as wheelspeed aiding.
+    </description>
+    <maintainer email="wandererlyd@gmail.com">lyd</maintainer>
+    <license>MIT</license>
+
+    <buildtool_depend>ament_cmake</buildtool_depend>
+
+    <depend>drdds</depend>
+    <depend>eigen</depend>
+    <depend>nav_msgs</depend>
+    <depend>rclcpp</depend>
+    <depend>sensor_msgs</depend>
+
+    <test_depend>ament_cmake_gtest</test_depend>
+
+    <export>
+        <build_type>ament_cmake</build_type>
+    </export>
+</package>
