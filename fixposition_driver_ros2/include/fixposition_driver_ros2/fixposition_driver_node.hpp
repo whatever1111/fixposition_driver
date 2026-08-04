@@ -20,6 +20,7 @@
 
 /* EXTERNAL */
 #include <fixposition_driver_lib/helper.hpp>
+#include <fixposition_driver_m20/m20_localization.hpp>
 #include <fpsdk_ros2/ext/rclcpp.hpp>
 
 /* PACKAGE */
@@ -58,6 +59,11 @@ class FixpositionDriverNode {
      * @brief Stop the node
      */
     void StopNode();
+
+    /**
+     * @brief Does the M20 module want this process re-created? (startup DDS deafness self-heal)
+     */
+    bool M20ReinitRequested() const;
 
    private:
     std::shared_ptr<rclcpp::Node> nh_;  //!< Node handle
@@ -147,6 +153,10 @@ class FixpositionDriverNode {
     };
     Tfs tfs_;
     std::unique_ptr<TfData> ecef_enu0_tf_;
+
+    // M20 localization interface (/ODOM, /LOC_BODY_POINTS, /LOCATION_STATUS). Null unless m20.enable.
+    m20::M20Params m20_params_;
+    std::unique_ptr<m20::M20Localization> m20_;
 
     void ProcessTfData(const TfData& tf_data);
     void ProcessOdometryData(const OdometryData& odometry_data);

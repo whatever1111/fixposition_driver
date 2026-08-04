@@ -24,6 +24,7 @@ find_package(tf2_eigen REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(fixposition_driver_lib REQUIRED)
 find_package(fixposition_driver_msgs REQUIRED)
+find_package(fixposition_driver_m20 REQUIRED)
 find_package(rtcm_msgs REQUIRED)
 find_package(fpsdk_common REQUIRED)
 find_package(fpsdk_ros2 REQUIRED)
@@ -75,7 +76,7 @@ install(DIRECTORY
 )
 ament_target_dependencies(${PROJECT_NAME}_exec
     rclcpp std_msgs nav_msgs geometry_msgs sensor_msgs tf2_ros tf2_eigen
-    fixposition_driver_lib fixposition_driver_msgs rtcm_msgs tf2_geometry_msgs)
+    fixposition_driver_lib fixposition_driver_msgs fixposition_driver_m20 rtcm_msgs tf2_geometry_msgs)
 
 # define ament package for this project
 ament_package()

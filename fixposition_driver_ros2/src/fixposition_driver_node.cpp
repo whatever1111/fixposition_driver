@@ -39,6 +39,35 @@ namespace fixposition {
 using namespace fpsdk::common;
 using namespace fpsdk::common::parser;
 
+namespace {
+
+/**
+ * @brief Convert the driver's odometry into the M20 module's ROS- and SDK-free form
+ */
+m20::OdomSample ToM20OdomSample(const OdometryData& data) {
+    m20::OdomSample sample;
+    sample.valid = data.valid && data.pose.valid && data.twist.valid;
+
+    const int64_t nanoseconds = fpsdk::ros2::utils::ConvTime(data.stamp).nanoseconds();
+    if (nanoseconds > 0) {
+        sample.stamp.sec = static_cast<int32_t>(nanoseconds / 1000000000);
+        sample.stamp.nsec = static_cast<uint32_t>(nanoseconds % 1000000000);
+    } else {
+        sample.valid = false;
+    }
+
+    sample.position = data.pose.position;
+    sample.orientation = data.pose.orientation;
+    sample.linear_velocity = data.twist.linear;
+    sample.angular_velocity = data.twist.angular;
+    Eigen::Map<Eigen::Matrix<double, 6, 6, Eigen::RowMajor>>(sample.pose_cov.data()) = data.pose.cov;
+    Eigen::Map<Eigen::Matrix<double, 6, 6, Eigen::RowMajor>>(sample.twist_cov.data()) = data.twist.cov;
+
+    return sample;
+}
+
+}  // namespace
+
 FixpositionDriverNode::FixpositionDriverNode(std::shared_ptr<rclcpp::Node> nh,
                                              const DriverParams& params) /* clang-format off */ :
     nh_                { nh },
@@ -66,6 +95,12 @@ FixpositionDriverNode::FixpositionDriverNode(std::shared_ptr<rclcpp::Node> nh,
     else if (params_.qos_type_ == "default_long") {
         qos_settings_ = rclcpp::QoS(rclcpp::KeepLast(10), rmw_qos_profile_default);
     }
+
+    // M20 localization interface. Its parameters are always declared so that they show up in
+    // introspection, but nothing is created unless m20.enable is set.
+    if (!m20::LoadM20ParamsFromRos2(nh_, m20_params_)) {
+        throw std::runtime_error("Failed loading m20 params");
+    }
 }
 
 FixpositionDriverNode::~FixpositionDriverNode() {}
@@ -92,6 +127,22 @@ bool FixpositionDriverNode::StartNode() {
     // TF
     tf_br_ = std::make_unique<tf2_ros::TransformBroadcaster>(nh_);
     static_br_ = std::make_unique<tf2_ros::StaticTransformBroadcaster>(nh_);
+
+    // M20 localization interface. Started before the sensor stream, so that it is ready by the time
+    // the first fusion output arrives.
+    if (m20_params_.enable) {
+        m20_ = std::make_unique<m20::M20Localization>(  //
+            nh_, m20_params_, [this](const m20::WheelSpeedSample& wheelspeed) {
+                std::vector<WheelSpeedData> data;
+                data.push_back({"RC", wheelspeed.vx_valid, wheelspeed.vx, wheelspeed.vy_valid, wheelspeed.vy,
+                                wheelspeed.vz_valid, wheelspeed.vz});
+                driver_.SendWheelspeedData(data);
+            });
+        if (!m20_->Start()) {
+            RCLCPP_ERROR(logger_, "Failed starting the M20 localization interface");
+            return false;
+        }
+    }
 
     // Add observers and advertise output topics, depending on configuration
     const std::string output_ns = (params_.output_ns_.empty() ? nh_->get_namespace() : params_.output_ns_);
@@ -165,6 +216,10 @@ bool FixpositionDriverNode::StartNode() {
             }
 
             PublishOdometryData(odometry_data, odometry_enu_pub_);
+            // The M20's /ODOM is this message: publish it before anything else can hold it up
+            if (m20_) {
+                m20_->OnOdometry(ToM20OdomSample(odometry_data));
+            }
             ProcessOdometryData(odometry_data);
             fusion_epoch_data_.CollectFpaOdomenu(odomenu_payload);
         });
@@ -484,8 +539,18 @@ bool FixpositionDriverNode::StartNode() {
 #undef _PUB
 #undef _SUB
 
+bool FixpositionDriverNode::M20ReinitRequested() const { return m20_ && m20_->ReinitRequested(); }
+
+// ---------------------------------------------------------------------------------------------------------------------
+
 void FixpositionDriverNode::StopNode() {
     RCLCPP_INFO(logger_, "Stopping...");
+
+    // Before the observers stop firing, so that nothing calls into a half-torn-down module
+    if (m20_) {
+        m20_->Stop();
+        m20_.reset();
+    }
 
     driver_.RemoveFpaObservers();
     driver_.RemoveNmeaObservers();
@@ -776,6 +841,7 @@ int main(int argc, char** argv) {
     fpsdk::common::app::SigIntHelper sigint;
 
     // Start node
+    bool reinit = false;
     std::unique_ptr<FixpositionDriverNode> node;
     if (ok) {
         try {
@@ -792,10 +858,11 @@ int main(int argc, char** argv) {
 
             // Do the same as rclpp::spin(), but also handle CTRL-C / SIGINT nicely
             // Callbacks execute in main thread
-            while (rclcpp::ok() && !sigint.ShouldAbort()) {
+            while (rclcpp::ok() && !sigint.ShouldAbort() && !node->M20ReinitRequested()) {
                 rclcpp::spin_until_future_complete(nh, std::promise<bool>().get_future(),
                                                    std::chrono::milliseconds(337));
             }
+            reinit = node->M20ReinitRequested();
 
             // TODO: we'd rather do this, but it (executing in those threads) doesn't seem to work
             // Use multiple spinner threads. Callback execute in one of them.
@@ -824,6 +891,15 @@ int main(int argc, char** argv) {
 
     // Shutdown ROS
     rclcpp::shutdown();
+
+    // The M20 module asked for a fresh process because its DDS participant came up deaf. Replacing
+    // the process image is the in-process equivalent of restarting the service, which is what
+    // reliably clears it.
+    if (reinit) {
+        m20::ReexecSelf(argv, 2.0);
+        RCLCPP_FATAL(logger, "Failed re-executing %s", argv[0]);
+        exit(EXIT_FAILURE);
+    }
 
     exit(ok ? EXIT_SUCCESS : EXIT_FAILURE);
 }

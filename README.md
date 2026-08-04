@@ -1,5 +1,9 @@
 # Fixposition ROS Driver
 
+> **This is a fork.** It adds the Deep Robotics M20 localization interface (`/ODOM`,
+> `/LOC_BODY_POINTS`, `/LOCATION_STATUS`) to the ROS2 driver — see **[M20.md](M20.md)**. The addition
+> is inert unless `m20.enable` is set, so everything below still applies unchanged.
+
 [ROS](https://www.ros.org/) (both ROS1 and ROS2) driver for [Fixposition Vision-RTK 2](https://www.fixposition.com/product).
 
 > [!IMPORTANT]

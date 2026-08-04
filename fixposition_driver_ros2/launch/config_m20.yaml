@@ -1,0 +1,111 @@
+# Fixposition ROS2 driver — Deep Robotics M20 localization interface
+#
+# The driver options are the stock ones (see launch/config.yaml for the full documentation); the
+# interesting part is the m20 block at the bottom. See M20.md for what it does.
+/**:
+    ros__parameters:
+        # Connection to the sensor
+        stream: tcpcli://10.0.2.1:21000
+        reconnect_delay: 5.0
+        delay_warning: 0.03
+
+        messages:
+            - "FP_A-ODOMETRY"
+            - "FP_A-ODOMENU"          # required: this is what becomes /ODOM
+            - "FP_A-ODOMSH"
+            - "FP_A-ODOMSTATUS"
+            - "FP_A-IMUBIAS"
+            - "FP_A-EOE"
+            - "FP_A-TF"
+            - "FP_A-RAWIMU"
+            - "FP_A-CORRIMU"
+            - "FP_A-LLH"
+            - "NOV_B-INSPVAX"
+            - "FP_A-TEXT"
+            - "FP_A-GNSSANT"
+            - "FP_A-GNSSCORR"
+            - "FP_A-TP"
+            - "GGA"
+            - "GLL"
+            - "GSA"
+            - "GST"
+            - "GSV"
+            - "HDT"
+            - "RMC"
+            - "VTG"
+            - "ZDA"
+            - "NOV_B-BESTGNSSPOS"
+
+        fusion_epoch: true
+        nmea_epoch: "GNSS"
+        raw_output: false
+        cov_warning: false
+        nav2_mode: true
+
+        # The M20 module feeds wheelspeed from /MOTION_INFO directly, so the generic converter and
+        # the external speed topic stay off.
+        converter:
+            enabled: false
+        speed_topic: ""
+
+        output_ns: "/fixposition"
+        corr_topic: "/rtcm"
+        qos_type: "sensor_short"
+
+        # ---- M20 localization interface -----------------------------------------------------------
+        m20:
+            enable: true
+
+            # "fpa_odomenu": publish /ODOM from the sensor's ENU fusion output (positioning-only).
+            # "subscribe"  : a SLAM pipeline publishes /ODOM; only follow it for the shared stamp.
+            odom_source: "fpa_odomenu"
+            odom_topic: "/ODOM"
+            odom_frame_id: "map"
+            odom_child_frame_id: ""      # the OEM's own /ODOM carries an empty child frame
+            odom_depth: 10
+            odom_reliable: true
+            zero_covariance: true
+
+            # Slide the sensor's stamps onto the host clock. A no-op while the robot's PTP chain is
+            # healthy; the safety net when GNSS time is lost.
+            retime_to_host_clock: true
+            retime_jump_sec: 0.5
+
+            # Inputs
+            lidar_topic: "/LIDAR/POINTS"
+            imu_topic: "/IMU"
+            motion_info_topic: "/MOTION_INFO"
+
+            # Deskewed body cloud
+            loc_body_points_topic: "/LOC_BODY_POINTS"
+            loc_body_frame_id: "base_link"
+            loc_body_depth: 5
+            loc_body_reliable: false     # set true if the consumer subscribes reliably
+            deskew_enable: true
+            deskew_use_linear_velocity: true
+            deskew_time_quantum_sec: 0.001
+            lidar_to_base_xyzrpy: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]   # identity on the M20
+
+            # Health reporting
+            location_status_topic: "/LOCATION_STATUS"
+            location_status_rate_hz: 2.0     # OEM contract
+            matching_odom_topic: ""          # set in SLAM mode to monitor scan-matching health
+            timeouts:
+                lidar_sec: 0.5
+                imu_sec: 0.3
+                leg_odom_sec: 0.5
+                rtk_sec: 1.0
+                matching_sec: 0.5
+                error_hold_sec: 5.0
+            overtime_threshold_sec: 0.15
+            timestamp_skew_threshold_sec: 1.0
+
+            # Leg odometry as wheelspeed aiding (m/s -> mm/s)
+            wheelspeed_enable: true
+            wheelspeed_scale_factor: 1000.0
+            wheelspeed_use_y: false
+            motion_info_max_rate_hz: 50.0
+
+            # Startup DDS deafness self-heal; 0 disables
+            boot_reinit_grace_sec: 45.0
+            boot_reinit_max: 5
