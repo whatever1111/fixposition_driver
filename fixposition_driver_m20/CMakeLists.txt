@@ -29,6 +29,13 @@ add_library(${PROJECT_NAME} SHARED
 target_include_directories(${PROJECT_NAME} PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
+)
+
+# Eigen headers are included as SYSTEM so that warnings raised inside them do not
+# hit our -Werror. On aarch64 Eigen's NEON path (PacketMath.h) memcpy's its own
+# packet wrappers and trips -Wclass-memaccess, which fails the build on the robot
+# while x86 never compiles that code at all.
+target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC
     ${EIGEN3_INCLUDE_DIR}
 )
 
