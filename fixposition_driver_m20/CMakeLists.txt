@@ -17,10 +17,15 @@ find_package(rclcpp REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(drdds REQUIRED)
+# lo_cloud_reader talks to Fast DDS directly (loopback-only participant, see its header); the
+# PointCloud2 wire format comes from the message's own fastrtps typesupport library
+find_package(fastcdr REQUIRED)
+find_package(fastrtps REQUIRED)
 
 # BUILD ================================================================================================================
 add_library(${PROJECT_NAME} SHARED
     src/deskew.cpp
+    src/lo_cloud_reader.cpp
     src/status_monitor.cpp
     src/time_utils.cpp
     src/m20_localization.cpp
@@ -45,6 +50,11 @@ ament_target_dependencies(${PROJECT_NAME}
     sensor_msgs
     drdds
 )
+target_link_libraries(${PROJECT_NAME}
+    fastcdr
+    fastrtps
+    sensor_msgs::sensor_msgs__rosidl_typesupport_fastrtps_cpp
+)
 
 # INSTALL ==============================================================================================================
 install(TARGETS ${PROJECT_NAME}
@@ -56,7 +66,7 @@ install(TARGETS ${PROJECT_NAME}
 install(DIRECTORY include/ DESTINATION include)
 
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
-ament_export_dependencies(rclcpp nav_msgs sensor_msgs drdds Eigen3)
+ament_export_dependencies(rclcpp nav_msgs sensor_msgs drdds Eigen3 fastcdr fastrtps)
 
 # TESTS ================================================================================================================
 if(BUILD_TESTING)
@@ -70,6 +80,9 @@ if(BUILD_TESTING)
 
     ament_add_gtest(test_time_utils test/test_time_utils.cpp)
     target_link_libraries(test_time_utils ${PROJECT_NAME})
+
+    ament_add_gtest(test_lo_cloud_reader test/test_lo_cloud_reader.cpp)
+    target_link_libraries(test_lo_cloud_reader ${PROJECT_NAME})
 endif()
 
 ament_package()

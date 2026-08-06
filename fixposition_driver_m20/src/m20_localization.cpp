@@ -147,6 +147,7 @@ bool LoadM20ParamsFromRos2(std::shared_ptr<rclcpp::Node>& nh, M20Params& params)
     load_double("m20.retime_jump_sec", params.retime_jump_sec);
 
     load_string("m20.lidar_topic", params.lidar_topic);
+    load_bool("m20.lidar_lo_participant", params.lidar_lo_participant);
     load_string("m20.imu_topic", params.imu_topic);
     load_string("m20.loc_body_points_topic", params.loc_body_points_topic);
     load_string("m20.loc_body_frame_id", params.loc_body_frame_id);
@@ -244,9 +245,28 @@ bool M20Localization::Start() {
     body_points_pub_ = nh_->create_publisher<sensor_msgs::msg::PointCloud2>(params_.loc_body_points_topic, cloud_qos);
     status_pub_ = nh_->create_publisher<drdds::msg::LocationStatus>(params_.location_status_topic, odom_qos);
 
-    lidar_sub_ = nh_->create_subscription<sensor_msgs::msg::PointCloud2>(
-        params_.lidar_topic, input_qos,
-        [this](sensor_msgs::msg::PointCloud2::UniquePtr msg) { CloudCb(std::move(msg)); });
+    if (params_.lidar_lo_participant) {
+        // The M20's OEM cloud writer sits on a loopback-only participant the node's own (rmw,
+        // multi-interface) participant can never discover — subscribe it from a dedicated
+        // loopback-only participant instead. See lo_cloud_reader.hpp.
+        const auto domain_id =
+            static_cast<uint32_t>(nh_->get_node_base_interface()->get_context()->get_domain_id());
+        lo_cloud_reader_ = std::make_unique<LoCloudReader>(
+            params_.lidar_topic, domain_id, 5,
+            [this](sensor_msgs::msg::PointCloud2::UniquePtr msg) { CloudCb(std::move(msg)); });
+        if (!lo_cloud_reader_->ok()) {
+            RCLCPP_ERROR(logger_, "M20: loopback cloud reader on %s failed to start — no lidar input",
+                         params_.lidar_topic.c_str());
+            lo_cloud_reader_.reset();
+            return false;
+        }
+        RCLCPP_INFO(logger_, "M20: subscribing %s on a dedicated loopback-only DDS participant (domain %u)",
+                    params_.lidar_topic.c_str(), domain_id);
+    } else {
+        lidar_sub_ = nh_->create_subscription<sensor_msgs::msg::PointCloud2>(
+            params_.lidar_topic, input_qos,
+            [this](sensor_msgs::msg::PointCloud2::UniquePtr msg) { CloudCb(std::move(msg)); });
+    }
     imu_sub_ = nh_->create_subscription<sensor_msgs::msg::Imu>(
         params_.imu_topic, input_qos, [this](const sensor_msgs::msg::Imu& msg) { ImuCb(msg); });
     motion_info_sub_ = nh_->create_subscription<drdds::msg::MotionInfo>(
@@ -295,6 +315,7 @@ void M20Localization::Stop() {
 
     status_timer_.reset();
     reinit_timer_.reset();
+    lo_cloud_reader_.reset();
     lidar_sub_.reset();
     imu_sub_.reset();
     motion_info_sub_.reset();
