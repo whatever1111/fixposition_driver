@@ -24,7 +24,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         build-essential cmake git python3-colcon-common-extensions \
-        libboost-dev libyaml-cpp-dev zlib1g-dev libeigen3-dev \
+        libboost-dev libboost-date-time-dev libyaml-cpp-dev zlib1g-dev libeigen3-dev \
         nlohmann-json3-dev libssl-dev pkg-config \
         ros-${ROS_DISTRO}-rosbag2-cpp \
         ros-${ROS_DISTRO}-tf2-ros ros-${ROS_DISTRO}-tf2-eigen ros-${ROS_DISTRO}-tf2-geometry-msgs \
@@ -105,6 +105,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
         ros-${ROS_DISTRO}-rosbag2-cpp \
         ros-${ROS_DISTRO}-tf2-ros ros-${ROS_DISTRO}-tf2-eigen ros-${ROS_DISTRO}-tf2-geometry-msgs \
         "$(if [ "${ROS_DISTRO}" = "foxy" ]; then echo libyaml-cpp0.6; else echo libyaml-cpp0.7; fi)" \
+        "$(if [ "${ROS_DISTRO}" = "foxy" ]; then echo libboost-date-time1.71.0; else echo libboost-date-time1.74.0; fi)" \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/fixposition /opt/fixposition
