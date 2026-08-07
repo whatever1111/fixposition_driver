@@ -96,12 +96,6 @@ class PointCloud2DataType : public ddscpp::TopicDataType {
     void deleteData(void* data) override { delete static_cast<sensor_msgs::msg::PointCloud2*>(data); }
 
     bool getKey(void* /*data*/, ddsrtps::InstanceHandle_t* /*handle*/, bool /*force_md5*/) override { return false; }
-
-    // PointCloud2 carries an unbounded byte sequence: it is neither bounded nor plain, so no
-    // shared-memory optimisation may size a pool from m_typeSize. The defaults already say this;
-    // stating it here keeps a future Fast DDS default from quietly re-enabling data sharing.
-    bool is_bounded() const override { return false; }
-    bool is_plain() const override { return false; }
 };
 
 }  // namespace
@@ -155,14 +149,6 @@ class LoCloudReader::Impl : public ddscpp::DataReaderListener {
         rqos.history().depth = depth;
         // Unbounded payloads: without realloc the pool would be stuck at m_typeSize
         rqos.endpoint().history_memory_policy = ddsrtps::PREALLOCATED_WITH_REALLOC_MEMORY_MODE;
-        // Data sharing MUST stay off. Left at AUTO it gets negotiated on match, and the writer then
-        // builds shared-memory pools sized from this type's advertised m_typeSize — which cannot
-        // describe an unbounded PointCloud2. On the M20 that crashed the OEM lidar process on every
-        // match: rsdriver segfaulted and systemd-restarted ~12x/minute, each dead process leaking
-        // its fast_datasharing_* segments until /dev/shm filled and the whole OEM stack crash-looped
-        // (measured 2026-08-07: 0 restarts with this reader absent, ~35 per 3 min with it present).
-        // We only ever wanted the loopback UDP path, so say so explicitly.
-        rqos.data_sharing().off();
 
         reader_ = subscriber_->create_datareader(topic_, rqos, this, ddscpp::StatusMask::data_available());
     }
