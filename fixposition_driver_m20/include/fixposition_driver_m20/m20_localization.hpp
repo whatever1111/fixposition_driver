@@ -49,7 +49,6 @@
 
 /* PACKAGE */
 #include "fixposition_driver_m20/deskew.hpp"
-#include "fixposition_driver_m20/lo_cloud_reader.hpp"
 #include "fixposition_driver_m20/m20_params.hpp"
 #include "fixposition_driver_m20/status_monitor.hpp"
 #include "fixposition_driver_m20/time_utils.hpp"
@@ -184,8 +183,6 @@ class M20Localization {
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr body_points_pub_;
     rclcpp::Publisher<drdds::msg::LocationStatus>::SharedPtr status_pub_;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr lidar_sub_;
-    //! Used instead of lidar_sub_ when params_.lidar_lo_participant is set (see lo_cloud_reader.hpp)
-    std::unique_ptr<LoCloudReader> lo_cloud_reader_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
     rclcpp::Subscription<drdds::msg::MotionInfo>::SharedPtr motion_info_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;

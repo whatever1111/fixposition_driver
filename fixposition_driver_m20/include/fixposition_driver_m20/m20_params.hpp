@@ -59,14 +59,6 @@ struct M20Params {
 
     // ---- /LOC_BODY_POINTS -----------------------------------------------------------------------
     std::string lidar_topic = "/LIDAR/POINTS";
-    /**
-     * Subscribe the lidar topic on a dedicated loopback-only DDS participant instead of the node's
-     * own. Needed on the M20: its OEM lidar driver publishes from a 127.0.0.1-bound participant that
-     * a Fast DDS 2.6 participant with real network interfaces can never discover (2.6 stops
-     * announcing a loopback locator alongside real NICs, and the OEM whitelist cannot answer to
-     * anything else). See lo_cloud_reader.hpp.
-     */
-    bool lidar_lo_participant = false;
     std::string imu_topic = "/IMU";
     std::string loc_body_points_topic = "/LOC_BODY_POINTS";
     std::string loc_body_frame_id = "base_link";
