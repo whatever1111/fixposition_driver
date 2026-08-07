@@ -18,8 +18,19 @@
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <std_msgs/msg/u_int8_multi_array.hpp>
+// Header suffixes differ across distros: Foxy ships tf2_eigen/tf2_eigen.h, Humble and
+// later ship tf2_eigen/tf2_eigen.hpp (same for tf2_geometry_msgs). Pick whichever exists
+// so one source tree builds on every supported ROS 2 version.
+#if __has_include(<tf2_eigen/tf2_eigen.hpp>)
 #include <tf2_eigen/tf2_eigen.hpp>
+#else
+#include <tf2_eigen/tf2_eigen.h>
+#endif
+#if __has_include(<tf2_geometry_msgs/tf2_geometry_msgs.hpp>)
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#else
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#endif
 
 // RTCM
 #include <rtcm_msgs/msg/message.hpp>

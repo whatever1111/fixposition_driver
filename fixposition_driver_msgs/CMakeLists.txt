@@ -107,7 +107,6 @@ elseif(${ROS_VERSION} EQUAL 2)
 
     ament_export_dependencies(rosidl_default_runtime)
 
-    rosidl_get_typesupport_target(cpp_typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
 
     add_library(${PROJECT_NAME}_lib SHARED
         src/data_to_ros.cpp
@@ -121,12 +120,26 @@ elseif(${ROS_VERSION} EQUAL 2)
         ${EIGEN3_INCLUDE_DIR}
     )
 
-    target_link_libraries(${PROJECT_NAME}_lib PUBLIC
-        ${cpp_typesupport_target}
-        ${fixposition_driver_lib_LIBRARIES}
-        ${fpsdk_common_LIBRARIES}
-        ${fpsdk_common_LIBRARIES}
-    )
+    # Attaching the generated typesupport differs across distros, and so does the
+    # target_link_libraries() signature we are then obliged to use:
+    #   Humble/Jazzy: rosidl_get_typesupport_target() hands back a target we link normally.
+    #   Foxy:         rosidl_target_interfaces() links it for us using the *plain*
+    #                 signature, and CMake forbids mixing plain and keyword (PUBLIC)
+    #                 forms on the same target — so this branch must stay plain.
+    if(COMMAND rosidl_get_typesupport_target)
+        rosidl_get_typesupport_target(cpp_typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
+        target_link_libraries(${PROJECT_NAME}_lib PUBLIC
+            ${cpp_typesupport_target}
+            ${fixposition_driver_lib_LIBRARIES}
+            ${fpsdk_common_LIBRARIES}
+        )
+    else()
+        rosidl_target_interfaces(${PROJECT_NAME}_lib ${PROJECT_NAME} rosidl_typesupport_cpp)
+        target_link_libraries(${PROJECT_NAME}_lib
+            ${fixposition_driver_lib_LIBRARIES}
+            ${fpsdk_common_LIBRARIES}
+        )
+    endif()
 
     install(DIRECTORY include/
         DESTINATION include/${PROJECT_NAME}

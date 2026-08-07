@@ -238,7 +238,7 @@ bool M20Localization::Start() {
         RCLCPP_INFO(logger_, "M20: following %s for the pose and stamp (published elsewhere)",
                     params_.odom_topic.c_str());
         odom_sub_ = nh_->create_subscription<nav_msgs::msg::Odometry>(
-            params_.odom_topic, input_qos, [this](const nav_msgs::msg::Odometry& msg) { OdomSubCb(msg); });
+            params_.odom_topic, input_qos, [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) { OdomSubCb(*msg); });
     }
 
     body_points_pub_ = nh_->create_publisher<sensor_msgs::msg::PointCloud2>(params_.loc_body_points_topic, cloud_qos);
@@ -248,13 +248,13 @@ bool M20Localization::Start() {
         params_.lidar_topic, input_qos,
         [this](sensor_msgs::msg::PointCloud2::UniquePtr msg) { CloudCb(std::move(msg)); });
     imu_sub_ = nh_->create_subscription<sensor_msgs::msg::Imu>(
-        params_.imu_topic, input_qos, [this](const sensor_msgs::msg::Imu& msg) { ImuCb(msg); });
+        params_.imu_topic, input_qos, [this](sensor_msgs::msg::Imu::ConstSharedPtr msg) { ImuCb(*msg); });
     motion_info_sub_ = nh_->create_subscription<drdds::msg::MotionInfo>(
-        params_.motion_info_topic, input_qos, [this](const drdds::msg::MotionInfo& msg) { MotionInfoCb(msg); });
+        params_.motion_info_topic, input_qos, [this](drdds::msg::MotionInfo::ConstSharedPtr msg) { MotionInfoCb(*msg); });
     if (!params_.matching_odom_topic.empty()) {
         matching_sub_ = nh_->create_subscription<nav_msgs::msg::Odometry>(
             params_.matching_odom_topic, input_qos,
-            [this](const nav_msgs::msg::Odometry&) { status_.MarkRx(StatusInput::MATCHING, SteadyNow()); });
+            [this](nav_msgs::msg::Odometry::ConstSharedPtr) { status_.MarkRx(StatusInput::MATCHING, SteadyNow()); });
     }
 
     RCLCPP_INFO(logger_, "M20: deskewing %s -> %s (frame \"%s\", gyro %s, deskew %s, reference = newest %s stamp)",

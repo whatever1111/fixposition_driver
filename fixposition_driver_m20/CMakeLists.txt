@@ -1,7 +1,7 @@
 # GENERAL ==============================================================================================================
 cmake_minimum_required(VERSION 3.16)
 project(fixposition_driver_m20)
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)  # fpsdk_common headers require C++17; Humble gets it implicitly from rclcpp, Foxy does not
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release")
 endif()
