@@ -194,13 +194,25 @@ jobs:
             echo
             echo '```bash'
             echo "docker load < fixposition-driver-m20_${VERSION}_${DISTRO}_arm64_docker-image.tar.gz"
-            echo "docker run --rm --network host \\"
+            echo "docker run --rm --network host -v /dev/shm:/dev/shm \\"
             echo "    -v /path/to/your.yaml:/config/fixposition.yaml \\"
             echo "    ${IMAGE}:${DISTRO}-${VERSION}"
             echo '```'
             echo
+            echo "**Both flags are mandatory, and omitting either fails silently** (the node runs"
+            echo "and publishes, but never receives — no crash, no error):"
+            echo
+            echo "- \`--network host\` — the sensor/OEM traffic lives on the host's interfaces."
+            echo "- \`-v /dev/shm:/dev/shm\` — Fast DDS's shared-memory transport lives in POSIX shm"
+            echo "  files. With docker's default private 64 MB \`/dev/shm\` a container cannot see"
+            echo "  host publishers. Measured on the M20 (2026-08-08): host namespace receives the"
+            echo "  OEM cloud immediately; private \`/dev/shm\` receives nothing across repeated"
+            echo "  probes; private IPC namespace with the host \`/dev/shm\` receives normally — so"
+            echo "  \`/dev/shm\` is the load-bearing flag (\`--ipc host\` also works, being a superset)."
+            echo
             echo "On the M20 robot use \`--network host\` (or \`none\`) only — never the default"
-            echo "bridge network."
+            echo "bridge network: creating a bridge veth there triggers a kernel RTNL deadlock that"
+            echo "wedges the whole host until a power cycle."
           } > notes.md
           gh release create "${TAG}" \
             --target "${GITHUB_SHA}" \
