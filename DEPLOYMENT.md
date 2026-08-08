@@ -118,13 +118,16 @@ docker run --rm --network host -v /dev/shm:/dev/shm \
   `--ipc host` also works (a superset); the IPC namespace itself is irrelevant — **`/dev/shm` is
   the load-bearing part**.
 
-### 镜像不带配置 | The image ships no config
+### `/config` 要自己挂 | `/config` must be mounted
 
-`CMD` 指向 `/config/fixposition.yaml`,必须自己挂进去。忘了挂,`v1.0.1` 起会给出明确报错并退出 2;
-`v1.0.0` 只会甩一句 `Error opening YAML file` 加一屏 C++ 栈,看不出是缺挂载。
-`CMD` points at `/config/fixposition.yaml` and you must mount one. If you forget, `v1.0.1`+ exits 2
-with a clear message; `v1.0.0` only printed `Error opening YAML file` plus a C++ stack trace that
-never mentioned the missing mount.
+`CMD` 指向 `/config/fixposition.yaml`,镜像里没有这个路径,所以按上面那条命令跑就必须挂配置。忘了挂,
+`v1.0.1` 起会给出明确报错并退出 2;`v1.0.0` 只会甩一句 `Error opening YAML file` 加一屏 C++ 栈,看不出
+是缺挂载。镜像**确实自带**默认配置,只是不在 `/config` —— 见 §3.1,可以直接 `--params-file` 指过去。
+`CMD` points at `/config/fixposition.yaml`, a path the image does not contain, so the command above
+requires a mount. If you forget, `v1.0.1`+ exits 2 with a clear message; `v1.0.0` only printed
+`Error opening YAML file` plus a C++ stack trace that never mentioned the missing mount. The image
+**does** bundle default configs, just not at `/config` — see §3.1, where you can point
+`--params-file` straight at them.
 
 > **M20 狗上永远只用 `--network host` 或 `--network none`。** 默认 bridge 网络创建 veth 会触发内核
 > RTNL 死锁,ssh 直接断、dockerd 全局卡死,只能整机断电重启。
@@ -149,6 +152,85 @@ the node name:
 `-r __node:=...`。
 The image's `CMD` does no node remapping, so the container's node is named `fixposition_driver`.
 Add `-r __node:=...` yourself in the native path if you want a fixed name.
+
+### 3.1 自带的默认配置 | The bundled default configs
+
+发布物**自带两份配置**,原生包和镜像里都有,路径一样:
+Releases **bundle two configs**, present in both the tarball and the image at the same path:
+
+```
+install/fixposition_driver_ros2/share/fixposition_driver_ros2/launch/
+├── config.yaml       # 通用默认(纯 fixposition)| generic fp-only defaults
+└── config_m20.yaml   # M20 定位接口 | the M20 localization interface
+```
+
+镜像里的绝对路径 | absolute path inside the image:
+`/opt/fixposition/install/fixposition_driver_ros2/share/fixposition_driver_ros2/launch/config.yaml`
+
+拿它当起点最省事 | the easiest way to start from it:
+
+```bash
+# 原生 | native
+cp install/fixposition_driver_ros2/share/fixposition_driver_ros2/launch/config.yaml my.yaml
+# 至少要改 stream(默认是示例地址 10.0.2.1)| at minimum change stream (the default is the example 10.0.2.1)
+
+# 镜像:直接用自带的那份跑(不挂任何配置)| image: run the bundled one directly, no mount
+docker run --rm --network host -v /dev/shm:/dev/shm <image> \
+    ros2 run fixposition_driver_ros2 fixposition_driver_ros2_exec --ros-args --params-file \
+    /opt/fixposition/install/fixposition_driver_ros2/share/fixposition_driver_ros2/launch/config.yaml
+```
+
+> 镜像默认的 `CMD` 读的是 `/config/fixposition.yaml`,**那个路径**镜像里没有,所以按 §2 的方式跑必须
+> 挂配置进去。自带的默认配置在上面那个 share 路径下,不在 `/config`。
+> The image's default `CMD` reads `/config/fixposition.yaml`, and **that path** does not exist in the
+> image, so the §2 invocation requires a mount. The bundled defaults live under the share path above,
+> not under `/config`.
+
+### 3.2 话题名可以配吗?可以 | Are topic names configurable? Yes
+
+**输入 | inputs**
+
+| 用途 purpose | 参数 parameter | 默认 default |
+|---|---|---|
+| 轮速直接输入 wheelspeed input | `speed_topic` | `/fixposition/speed`(留空禁用 empty disables) |
+| RTCM 差分输入 correction input | `corr_topic` | `/rtcm`(留空禁用 empty disables) |
+| 从现有运动话题转换出轮速 convert wheelspeed from an existing motion topic | `converter.enabled` | `false` |
+| ↳ 订阅哪个话题 which topic to subscribe | `converter.input_topic` | `/robot/odom` |
+| ↳ 该话题的类型 its type | `converter.topic_type` | `Twist`(可选 `TwistWithCov` / `Odometry`) |
+| ↳ 单位换算到 mm/s scale to mm/s | `converter.scale_factor` | `1000.0`(必须是浮点 must be a float) |
+| ↳ 用哪几个轴 which axes | `converter.use_x` / `use_y` / `use_z` | `true` / `false` / `false` |
+
+所以"运动速度话题名"有两条路:自己往 `speed_topic` 发 fixposition 的轮速消息,或者打开 `converter`
+让驱动直接订阅你已有的 `Twist`/`Odometry` 话题并自动换算。
+So there are two routes for the motion/speed topic: publish fixposition wheelspeed messages to
+`speed_topic` yourself, or enable `converter` and let the driver subscribe to your existing
+`Twist`/`Odometry` topic and do the conversion.
+
+**输出 | outputs**
+
+| 参数 parameter | 默认 default | 作用 effect |
+|---|---|---|
+| `output_ns` | `/fixposition` | 所有输出话题的命名空间前缀;留空则用节点命名空间 namespace prefix for every output topic; empty falls back to the node namespace |
+
+**注意:单个输出话题名不是参数。** 它们是 `output_ns` 加固定后缀拼出来的,例如
+`<ns>/fpa/odometry`、`<ns>/odometry_ecef`、`<ns>/odometry_llh`、`<ns>/poiimu`、`<ns>/odometry_smooth`。
+改 `output_ns` 能整棵搬走;想单独改某一个,用 ROS 2 的 remap:
+**Note: individual output topic names are not parameters.** They are `output_ns` plus a fixed
+suffix — `<ns>/fpa/odometry`, `<ns>/odometry_ecef`, `<ns>/odometry_llh`, `<ns>/poiimu`,
+`<ns>/odometry_smooth` and so on. `output_ns` moves the whole tree; to rename just one, use ROS 2
+remapping:
+
+```bash
+ros2 run fixposition_driver_ros2 fixposition_driver_ros2_exec --ros-args \
+    --params-file my.yaml \
+    -r /fixposition/odometry_enu:=/my/odom
+```
+
+M20 定位接口那套话题名则是**逐个可配**的(`m20.odom_topic` / `m20.lidar_topic` /
+`m20.motion_info_topic` / `m20.matching_odom_topic`),见 fslam 仓库的 `DEPLOYMENT.md`。
+The M20 localization interface, by contrast, makes its topic names **individually configurable**
+(`m20.odom_topic`, `m20.lidar_topic`, `m20.motion_info_topic`, `m20.matching_odom_topic`) — see
+`DEPLOYMENT.md` in the fslam repo.
 
 ---
 
