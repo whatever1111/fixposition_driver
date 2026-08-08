@@ -12,9 +12,14 @@ CONFIG="${FP_CONFIG:-/config/fixposition.yaml}"
 if [[ "$*" == *"${CONFIG}"* ]] && [[ ! -f "${CONFIG}" ]]; then
   echo "ERROR: config not found at ${CONFIG}" >&2
   echo "" >&2
-  echo "This image ships no configuration — mount one in:" >&2
+  echo "Mount one in:" >&2
   echo "  docker run --rm --network host -v /dev/shm:/dev/shm \\" >&2
   echo "      -v /path/to/your.yaml:${CONFIG} <image>" >&2
+  echo "" >&2
+  echo "Or point --params-file at a bundled default (remember to set 'stream'):" >&2
+  for _d in /opt/fixposition/install/*/share/*/launch/*.yaml; do
+    [ -f "${_d}" ] && echo "  ${_d}" >&2
+  done
   echo "" >&2
   echo "Both --network host and -v /dev/shm:/dev/shm are required, or the driver" >&2
   echo "runs but silently receives nothing (Fast DDS shared memory lives in /dev/shm)." >&2
