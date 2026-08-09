@@ -77,9 +77,82 @@ fixposition-driver-m20/
 > Releases carry no python typesupport, so **fixposition custom messages cannot be `ros2 topic
 > echo`-ed** (standard messages and the OEM's drdds topics are unaffected).
 
-开机自启就写一个 systemd unit 指向上面的命令;`Restart=on-failure` 即可,不需要 launch 的 respawn。
-For boot start, write a systemd unit around the command above; `Restart=on-failure` is enough and
-launch-level respawn is not needed.
+### 1.1 包里的脚本和 launch 文件 | Scripts and launch files in the tarball
+
+| 文件 file | 用途 purpose | 备注 notes |
+|---|---|---|
+| `env.sh` | 环境入口:source ROS + overlay,设 `LD_LIBRARY_PATH` | 可在 `set -u` 下安全 source safe to source under `set -u` |
+| `entrypoint.sh` | 镜像入口;原生也能当包装脚本用 image entry point, also usable natively | 先 source `env.sh`,再查配置在不在,最后 `exec "$@"` |
+| `install/.../launch/node.launch` | 上游 launch 文件 upstream launch file | **Foxy 用不了** — 见下 |
+| `install/.../launch/dev.launch` | 开发用 development | 同上 same |
+| `install/.../launch/config*.yaml` | 自带默认配置 bundled defaults | 见 §3.1 |
+
+> **`node.launch` 在 Foxy 上直接报错,别用。** 它带 `respawn` / `respawn_delay` / `ros_args`,这些是
+> Galactic 以后才有的 XML 属性,Foxy 的 `launch_xml` 会抛 `InvalidLaunchFileError`。放进 systemd 里更坑:
+> unit 看着是 `active`,进程其实压根没起来,话题一个都没有。**Foxy 一律用 §1 的 `ros2 run ...
+> --params-file`**;Humble 上 `ros2 launch` 是好的。
+> **`node.launch` fails outright on Foxy — do not use it.** It carries `respawn`, `respawn_delay`
+> and `ros_args`, all Galactic-and-later XML attributes, so Foxy's `launch_xml` throws
+> `InvalidLaunchFileError`. Inside systemd this is worse: the unit reads `active` while the process
+> never started and no topics appear. **On Foxy always use the `ros2 run ... --params-file` form from
+> §1**; on Humble `ros2 launch` works fine.
+
+仓库里另有 `setup_ros_ws.sh` / `create_ros_ws.sh` / `precommit.sh` —— 那些是**从源码开发**用的,不参与
+二进制部署,发布包里也没有。
+The repo also carries `setup_ros_ws.sh`, `create_ros_ws.sh` and `precommit.sh`: those are for
+**building from source**, play no part in binary deployment, and are not in the release.
+
+### 1.2 最小启动脚本 | A minimal launcher script
+
+本仓库不像 fslam 那样自带 `run_*.sh`(驱动是通用件,启动策略归产品层)。要一个能直接跑的脚本,把下面这段
+放到解开后的目录里存成 `run.sh` 就行,Foxy / Humble 通用:
+This repo ships no `run_*.sh` the way fslam does — the driver is a generic component and launch
+policy belongs to the product layer. If you want one, drop this into the unpacked directory as
+`run.sh`; it works on both Foxy and Humble:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG="${1:-${HERE}/my.yaml}"
+[[ -f "${CONFIG}" ]] || { echo "config not found: ${CONFIG}" >&2; exit 2; }
+
+source "${HERE}/env.sh"          # env.sh 自己处理 set -u | env.sh handles set -u itself
+
+exec ros2 run fixposition_driver_ros2 fixposition_driver_ros2_exec \
+    --ros-args -r __node:=fixposition_driver_ros2 \
+    --params-file "${CONFIG}"
+```
+
+```bash
+chmod +x run.sh
+./run.sh /etc/fixposition/my.yaml       # 前台,Ctrl-C 停 | foreground, Ctrl-C stops it
+```
+
+开机自启:`exec` + `Type=simple` + `Restart=on-failure`,systemd 负责保活,不需要 launch 的 respawn。
+For boot start, `exec` + `Type=simple` + `Restart=on-failure` lets systemd supervise it; launch-level
+respawn is not needed.
+
+```ini
+# /etc/systemd/system/fixposition_driver.service
+[Unit]
+Description=Fixposition driver
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=5
+ExecStart=/opt/fixposition/run.sh /etc/fixposition/my.yaml
+
+[Install]
+WantedBy=multi-user.target
+```
+
+M20 那套完整链路(三话题契约 + 启动脚本 + unit)在 fslam 仓库,别在这里重造。
+The full M20 chain (three-topic contract, launchers, unit) lives in the fslam repo — don't rebuild it
+here.
 
 ---
 
