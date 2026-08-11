@@ -71,6 +71,14 @@
             retime_to_host_clock: true
             retime_jump_sec: 0.5
 
+            # OEM handler compatibility: the native handler safety gate subscribes the legacy
+            # /LIO_ODOM + /cloud_nav interface (discovered in the 2026-08-10/11 0x312 field
+            # investigation), NOT the /ODOM triplet. These publish the same odometry and deskewed
+            # cloud under the legacy names with reliable QoS. Empty string disables one.
+            handler_odom_topic: "/LIO_ODOM"
+            handler_cloud_topic: "/cloud_nav"
+            handler_depth: 10
+
             # Inputs
             lidar_topic: "/LIDAR/POINTS"
             imu_topic: "/IMU"

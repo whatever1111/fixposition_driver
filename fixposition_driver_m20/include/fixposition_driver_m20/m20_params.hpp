@@ -57,6 +57,12 @@ struct M20Params {
     bool retime_to_host_clock = true;
     double retime_jump_sec = 0.5;
 
+    // ---- OEM handler compatibility ---------------------------------------------------------------
+    //! Additional reliable aliases consumed by the native handler safety gate; empty disables one.
+    std::string handler_odom_topic = "/LIO_ODOM";
+    std::string handler_cloud_topic = "/cloud_nav";
+    int handler_depth = 10;
+
     // ---- /LOC_BODY_POINTS -----------------------------------------------------------------------
     std::string lidar_topic = "/LIDAR/POINTS";
     std::string imu_topic = "/IMU";
