@@ -146,6 +146,10 @@ bool LoadM20ParamsFromRos2(std::shared_ptr<rclcpp::Node>& nh, M20Params& params)
     load_bool("m20.retime_to_host_clock", params.retime_to_host_clock);
     load_double("m20.retime_jump_sec", params.retime_jump_sec);
 
+    load_string("m20.handler_odom_topic", params.handler_odom_topic);
+    load_string("m20.handler_cloud_topic", params.handler_cloud_topic);
+    load_int("m20.handler_depth", params.handler_depth);
+
     load_string("m20.lidar_topic", params.lidar_topic);
     load_string("m20.imu_topic", params.imu_topic);
     load_string("m20.loc_body_points_topic", params.loc_body_points_topic);
@@ -226,6 +230,7 @@ double M20Localization::EpochNow() const { return static_cast<double>(nh_->now()
 bool M20Localization::Start() {
     const rclcpp::QoS odom_qos = MakeQos(params_.odom_depth, params_.odom_reliable);
     const rclcpp::QoS cloud_qos = MakeQos(params_.loc_body_depth, params_.loc_body_reliable);
+    const rclcpp::QoS handler_qos = MakeQos(params_.handler_depth, true);
     // Sensor inputs: shallow and best-effort — only the newest sample is worth anything, and this
     // matches both reliable and best-effort publishers
     const rclcpp::QoS input_qos = MakeQos(5, false);
@@ -241,6 +246,14 @@ bool M20Localization::Start() {
             params_.odom_topic, input_qos, [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) { OdomSubCb(*msg); });
     }
 
+    if (!params_.handler_odom_topic.empty()) {
+        handler_odom_pub_ =
+            nh_->create_publisher<nav_msgs::msg::Odometry>(params_.handler_odom_topic, handler_qos);
+    }
+    if (!params_.handler_cloud_topic.empty()) {
+        handler_cloud_pub_ =
+            nh_->create_publisher<sensor_msgs::msg::PointCloud2>(params_.handler_cloud_topic, handler_qos);
+    }
     body_points_pub_ = nh_->create_publisher<sensor_msgs::msg::PointCloud2>(params_.loc_body_points_topic, cloud_qos);
     status_pub_ = nh_->create_publisher<drdds::msg::LocationStatus>(params_.location_status_topic, odom_qos);
 
@@ -262,6 +275,9 @@ bool M20Localization::Start() {
                 params_.imu_topic.c_str(), params_.deskew_enable ? "on" : "off", params_.odom_topic.c_str());
     RCLCPP_INFO(logger_, "M20: publishing %s at %.2f Hz", params_.location_status_topic.c_str(),
                 params_.location_status_rate_hz);
+    RCLCPP_INFO(logger_, "M20: handler compatibility aliases: odom=%s, cloud=%s (reliable)",
+                params_.handler_odom_topic.empty() ? "disabled" : params_.handler_odom_topic.c_str(),
+                params_.handler_cloud_topic.empty() ? "disabled" : params_.handler_cloud_topic.c_str());
 
     {
         std::lock_guard<std::mutex> lock(cloud_mutex_);
@@ -301,7 +317,9 @@ void M20Localization::Stop() {
     odom_sub_.reset();
     matching_sub_.reset();
     odom_pub_.reset();
+    handler_odom_pub_.reset();
     body_points_pub_.reset();
+    handler_cloud_pub_.reset();
     status_pub_.reset();
 }
 
@@ -330,7 +348,7 @@ void M20Localization::OnOdometry(const OdomSample& sample) {
         stamp = Stamp::FromSec(corrected);
     }
 
-    if (odom_pub_) {
+    if (odom_pub_ || handler_odom_pub_) {
         nav_msgs::msg::Odometry msg;
         msg.header.stamp.sec = stamp.sec;
         msg.header.stamp.nanosec = stamp.nsec;
@@ -354,7 +372,12 @@ void M20Localization::OnOdometry(const OdomSample& sample) {
             std::copy(sample.twist_cov.begin(), sample.twist_cov.end(), msg.twist.covariance.begin());
         }
         try {
-            odom_pub_->publish(msg);
+            if (odom_pub_) {
+                odom_pub_->publish(msg);
+            }
+            if (handler_odom_pub_) {
+                handler_odom_pub_->publish(msg);
+            }
         } catch (const std::exception& ex) {
             status_.MarkError(StatusError::PUBLISH, steady);
             RCLCPP_ERROR_THROTTLE(logger_, *nh_->get_clock(), 5000, "M20: failed publishing odometry: %s", ex.what());
@@ -584,6 +607,15 @@ void M20Localization::ProcessCloud(sensor_msgs::msg::PointCloud2::UniquePtr msg)
     msg->header.frame_id = params_.loc_body_frame_id;
 
     const double process_sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+    try {
+        if (handler_cloud_pub_) {
+            handler_cloud_pub_->publish(*msg);
+        }
+    } catch (const std::exception& ex) {
+        status_.MarkError(StatusError::PUBLISH, SteadyNow());
+        RCLCPP_ERROR_THROTTLE(logger_, *nh_->get_clock(), 5000,
+                             "M20: failed publishing handler cloud alias: %s", ex.what());
+    }
     try {
         body_points_pub_->publish(std::move(msg));
     } catch (const std::exception& ex) {
