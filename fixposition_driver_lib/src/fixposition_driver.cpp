@@ -205,11 +205,13 @@ std::size_t FixpositionDriver::Read(uint8_t* buf, const std::size_t size, const 
     }
     // We should be able to read some data
     else if ((poll_fds_[0].revents & POLLIN) != 0) {
+        // Up to the caller's size (buf is a pointer, sizeof(buf) would be 8): read() for the serial port, which is
+        // a tty and not a socket, and a recv() that cannot block for the TCP socket
         ssize_t rv = 0;
         if (serial_) {
-            rv = recv(sensor_fd_, buf, size, MSG_DONTWAIT);
+            rv = read(sensor_fd_, buf, size);
         } else {
-            rv = read(sensor_fd_, buf, sizeof(buf));
+            rv = recv(sensor_fd_, buf, size, MSG_DONTWAIT);
         }
         // We have some data
         if (rv >= 0) {

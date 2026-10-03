@@ -39,6 +39,8 @@ class FixpositionDriverNode {
      *
      * @param[in]  nh      Node handle
      * @param[in]  params  Parameters
+     *
+     * @throws std::exception for a bad imu_queue_depth parameter, see LoadImuQueueDepth()
      */
     FixpositionDriverNode(std::shared_ptr<rclcpp::Node> nh, const DriverParams& params);
 
@@ -65,6 +67,7 @@ class FixpositionDriverNode {
     rclcpp::Logger logger_;             //!< Logger
     FixpositionDriver driver_;          //!< Sensor driver
     rclcpp::QoS qos_settings_;          //!< QoS settings
+    rclcpp::QoS imu_qos_settings_;      //!< QoS settings for FP_A-RAWIMU and FP_A-CORRIMU
 
     // ROS publishers
     // - FP_A messages

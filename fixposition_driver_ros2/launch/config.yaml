@@ -70,3 +70,5 @@
         speed_topic: "/fixposition/speed"        # Wheelspeed input, empty to disable
         corr_topic:  "/rtcm"                     # Correction data input, empty to disable
         qos_type:    "sensor_short"              # "sensor_short", "sensor_long", "default_short", "default_long"
+        imu_queue_depth: 200                     # History of the FP_A-RAWIMU and FP_A-CORRIMU topics (1...2000), which
+                                                 # otherwise have the qos_type QoS: 200 = 1 s of IMU at 200 Hz

@@ -32,6 +32,7 @@
 
 /* PACKAGE */
 #include "fixposition_driver_ros2/fixposition_driver_node.hpp"
+#include "fixposition_driver_ros2/qos.hpp"
 
 namespace fixposition {
 /* ****************************************************************************************************************** */
@@ -45,27 +46,13 @@ FixpositionDriverNode::FixpositionDriverNode(std::shared_ptr<rclcpp::Node> nh,
     params_            { params },
     logger_            { nh_->get_logger() },
     driver_            { params },
-    qos_settings_      { rclcpp::QoS(rclcpp::KeepLast(10), rmw_qos_profile_default) },
+    qos_settings_      { QosFromType(params_.qos_type_) },
+    imu_qos_settings_  { ImuQosFromType(params_.qos_type_, LoadImuQueueDepth(*nh_)) },
     nmea_epoch_data_   { params_.nmea_epoch_ }  // clang-format on
 
 {
-    // Override default QoS settings
-    // - Short-queue sensor-type QoS
-    if (params_.qos_type_ == "sensor_short") {
-        qos_settings_ = rclcpp::QoS(rclcpp::KeepLast(5), rmw_qos_profile_sensor_data);
-    }
-    // - Long-queue sensor-type QoS
-    else if (params_.qos_type_ == "sensor_long") {
-        qos_settings_ = rclcpp::QoS(rclcpp::KeepLast(10), rmw_qos_profile_sensor_data);
-    }
-    // - Short-queue default-type QoS
-    else if (params_.qos_type_ == "default_short") {
-        qos_settings_ = rclcpp::QoS(rclcpp::KeepLast(5), rmw_qos_profile_default);
-    }
-    // - Long-queue default-type QoS
-    else if (params_.qos_type_ == "default_long") {
-        qos_settings_ = rclcpp::QoS(rclcpp::KeepLast(10), rmw_qos_profile_default);
-    }
+    RCLCPP_INFO(logger_, "FixpositionDriverNode: imu_queue_depth=%zu (history of FP_A-RAWIMU and FP_A-CORRIMU)",
+                imu_qos_settings_.get_rmw_qos_profile().depth);
 }
 
 FixpositionDriverNode::~FixpositionDriverNode() {}
@@ -250,7 +237,7 @@ bool FixpositionDriverNode::StartNode() {
 
     // FP_A-RAWIMU
     if (params_.MessageEnabled(fpa::FpaRawimuPayload::MSG_NAME)) {
-        _PUB(rawimu_pub_, fpmsgs::FpaImu, output_ns + "/fpa/rawimu", qos_settings_);
+        _PUB(rawimu_pub_, fpmsgs::FpaImu, output_ns + "/fpa/rawimu", imu_qos_settings_);
         driver_.AddFpaObserver(fpa::FpaRawimuPayload::MSG_NAME, [this](const fpa::FpaPayload& payload) {
             PublishFpaRawimu(dynamic_cast<const fpa::FpaRawimuPayload&>(payload), rawimu_pub_);
         });
@@ -258,7 +245,7 @@ bool FixpositionDriverNode::StartNode() {
 
     // FP_A-CORRIMU
     if (params_.MessageEnabled(fpa::FpaCorrimuPayload::MSG_NAME)) {
-        _PUB(corrimu_pub_, fpmsgs::FpaImu, output_ns + "/fpa/corrimu", qos_settings_);
+        _PUB(corrimu_pub_, fpmsgs::FpaImu, output_ns + "/fpa/corrimu", imu_qos_settings_);
         driver_.AddFpaObserver(fpa::FpaCorrimuPayload::MSG_NAME, [this](const fpa::FpaPayload& payload) {
             PublishFpaCorrimu(dynamic_cast<const fpa::FpaCorrimuPayload&>(payload), corrimu_pub_);
         });

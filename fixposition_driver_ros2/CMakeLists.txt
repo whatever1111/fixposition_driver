@@ -45,6 +45,7 @@ add_executable(
   src/fixposition_driver_node.cpp
   src/params.cpp
   src/data_to_ros2.cpp
+  src/qos.cpp
 )
 
 target_link_libraries(
@@ -76,6 +77,17 @@ install(DIRECTORY
 ament_target_dependencies(${PROJECT_NAME}_exec
     rclcpp std_msgs nav_msgs geometry_msgs sensor_msgs tf2_ros tf2_eigen
     fixposition_driver_lib fixposition_driver_msgs rtcm_msgs tf2_geometry_msgs)
+
+# TESTS ================================================================================================================
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  # The test creates ROS nodes, so it has its own main() for rclcpp::init()
+  ament_add_gtest(${PROJECT_NAME}_qos_test test/qos_test.cpp src/qos.cpp SKIP_LINKING_MAIN_LIBRARIES TIMEOUT 60)
+  if(TARGET ${PROJECT_NAME}_qos_test)
+    target_link_libraries(${PROJECT_NAME}_qos_test ${fpsdk_ros2_LIBRARIES})
+    ament_target_dependencies(${PROJECT_NAME}_qos_test rclcpp fixposition_driver_msgs)
+  endif()
+endif()
 
 # define ament package for this project
 ament_package()
