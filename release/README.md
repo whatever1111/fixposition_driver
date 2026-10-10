@@ -49,8 +49,11 @@ assets.
 ## Build machinery
 
 `release/Dockerfile` is one multi-stage file for all distros
-(`--build-arg ROS_DISTRO=...`): a `builder` stage compiles the SDK
-(cmake, PROJ off) and the driver workspace (colcon), prunes the staged
-`/opt/fixposition` tree down to binaries; the published `runtime` stage carries
-only that tree plus runtime apt dependencies, and re-runs the no-source audit +
-an `ldd` completeness check as build steps.
+(`--build-arg ROS_DISTRO=...`): a `compiled` stage compiles the SDK
+(cmake, PROJ off) and the driver workspace (colcon); a `builder` stage prunes the
+staged `/opt/fixposition` tree down to binaries; the published `runtime` stage
+carries only that tree plus runtime apt dependencies, and re-runs the no-source
+audit + an `ldd` completeness check as build steps. A `test` stage, last in the
+file, builds and runs the `fixposition_driver_m20` unit tests on top of
+`compiled`. Always pass `--target runtime` or `--target test`: without one,
+docker builds the last stage.
