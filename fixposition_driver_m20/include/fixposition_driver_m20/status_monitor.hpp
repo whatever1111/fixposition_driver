@@ -47,12 +47,17 @@ constexpr uint8_t INPUT_MISSING = 0;
 
 /**
  * @brief Tracked inputs
+ *
+ * RTK says that odometry is arriving, not that GNSS is healthy. Every sample accepted from the
+ * selected odometry source marks it, and so does every valid ENU output of the positioning sensor
+ * while another node's /ODOM is followed. input_val.rtk therefore reads "the followed /ODOM or the
+ * sensor's ENU output is arriving", and stays set without any GNSS for as long as either one flows.
  */
 enum class StatusInput {
     LIDAR = 0,  //!< lidar point clouds
     IMU,        //!< body IMU
     LEG_ODOM,   //!< leg odometry (drdds MotionInfo)
-    RTK,        //!< fusion output of the positioning sensor
+    RTK,        //!< the selected odometry source or the positioning sensor's ENU output (see above)
     MATCHING,   //!< scan-matching odometry, only in SLAM mode
     COUNT
 };
