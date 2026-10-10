@@ -70,6 +70,16 @@ if(BUILD_TESTING)
 
     ament_add_gtest(test_time_utils test/test_time_utils.cpp)
     target_link_libraries(test_time_utils ${PROJECT_NAME})
+
+    # The odometry source policy and the health state machine are ROS-free. This test is built from
+    # the pure sources alone and does not link the module library, so that it stays that way.
+    ament_add_gtest(test_odometry_source_policy
+        test/test_odometry_source_policy.cpp
+        src/status_monitor.cpp
+    )
+    target_include_directories(test_odometry_source_policy PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
 endif()
 
 ament_package()
