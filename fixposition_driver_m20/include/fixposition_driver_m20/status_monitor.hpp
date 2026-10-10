@@ -49,9 +49,10 @@ constexpr uint8_t INPUT_MISSING = 0;
  * @brief Tracked inputs
  *
  * RTK says that odometry is arriving, not that GNSS is healthy. Every sample accepted from the
- * selected odometry source marks it, and so does every valid ENU output of the positioning sensor
- * while another node's /ODOM is followed. input_val.rtk therefore reads "the followed /ODOM or the
- * sensor's ENU output is arriving", and stays set without any GNSS for as long as either one flows.
+ * selected odometry source marks it, and so does every valid, finite ENU output of the positioning
+ * sensor while another node's /ODOM is followed. input_val.rtk therefore reads "the followed /ODOM
+ * or the sensor's ENU output is arriving", and stays set without any GNSS for as long as either one
+ * keeps delivering samples that pass those checks.
  */
 enum class StatusInput {
     LIDAR = 0,  //!< lidar point clouds
