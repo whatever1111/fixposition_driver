@@ -1,0 +1,46 @@
+name: m20-tests
+
+# Builds the driver and runs the fixposition_driver_m20 unit tests for the M20
+# branches, in the release Dockerfile's "test" stage: the same SDK and
+# workspace build a release goes through, plus the gtests.
+
+on:
+    push:
+        branches: [m20-foxy, m20-humble, m20]
+    pull_request:
+        branches: [m20-foxy, m20-humble, m20]
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    # Note: job names should be unique across all workflows (e.g. to reference them as pull request checks)!
+
+    m20-tests:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                    submodules: 'recursive'
+            - name: Select the ROS 2 distro
+              id: distro
+              env:
+                    # The branch a pull request targets, otherwise the branch that was pushed or dispatched
+                    TARGET_BRANCH: ${{ github.base_ref || github.ref_name }}
+              run: |
+                  if [ "${TARGET_BRANCH}" = "m20-foxy" ]; then
+                      distro=foxy
+                  else
+                      distro=humble
+                  fi
+                  echo "${TARGET_BRANCH} -> ${distro}"
+                  echo "ros_distro=${distro}" >> "${GITHUB_OUTPUT}"
+            - name: Build the driver and run the m20 unit tests
+              env:
+                    ROS_DISTRO: ${{ steps.distro.outputs.ros_distro }}
+              run: |
+                  docker build -f release/Dockerfile --build-arg ROS_DISTRO="${ROS_DISTRO}" --target test .
+
+# eof
