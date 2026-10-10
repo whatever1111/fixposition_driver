@@ -216,9 +216,11 @@ bool FixpositionDriverNode::StartNode() {
             }
 
             PublishOdometryData(odometry_data, odometry_enu_pub_);
-            // The M20's /ODOM is this message: publish it before anything else can hold it up
+            // Hand the sensor's ENU output to the M20 module before anything else can hold it up. In
+            // positioning-only mode it is the M20's /ODOM; when the module follows another node's
+            // /ODOM it is only a sign that the sensor is alive, which is why the feed is named here.
             if (m20_) {
-                m20_->OnOdometry(ToM20OdomSample(odometry_data));
+                m20_->OnOdometry(ToM20OdomSample(odometry_data), m20::OdomFeed::SENSOR_ENU);
             }
             ProcessOdometryData(odometry_data);
             fusion_epoch_data_.CollectFpaOdomenu(odomenu_payload);
