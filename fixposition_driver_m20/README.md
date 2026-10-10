@@ -96,8 +96,9 @@ OEM ever documents them, that is the only place to change.
 follows the sensor's valid ENU output. In `subscribe` mode it means "the pipeline's `/ODOM` or the
 sensor's ENU output is arriving": either one keeps it set. Arriving means accepted, not merely
 received: a sensor output counts only while it is valid and finite, and the pipeline's `/ODOM` only
-when it is finite and was republished without an error. A pipeline that has stopped therefore shows
-in `loss_val.odom_error` and `total_status`, not in this flag. Both the flag and `odom_error` use
+when it is finite and every publication enabled for it completed without an error. Finite covers
+the position, the orientation and both velocities. A pipeline that has stopped therefore shows in
+`loss_val.odom_error` and `total_status`, not in this flag. Both the flag and `odom_error` use
 `timeouts.rtk_sec`.
 
 What `subscribe` mode reports, with the lidar, the IMU and the leg odometry arriving, scan-matching
