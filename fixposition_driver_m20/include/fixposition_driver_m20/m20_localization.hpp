@@ -50,6 +50,7 @@
 /* PACKAGE */
 #include "fixposition_driver_m20/deskew.hpp"
 #include "fixposition_driver_m20/m20_params.hpp"
+#include "fixposition_driver_m20/odometry_source_policy.hpp"
 #include "fixposition_driver_m20/status_monitor.hpp"
 #include "fixposition_driver_m20/time_utils.hpp"
 
@@ -140,12 +141,18 @@ class M20Localization {
     void Stop();
 
     /**
-     * @brief Feed the fusion output in
+     * @brief Feed one odometry sample in
      *
-     * Called from the driver's parser thread for every ENU odometry message. Publishes /ODOM in
-     * positioning-only mode, and in every mode updates the pose that stamps the other two topics.
+     * DecideOdomInput() (odometry_source_policy.hpp) decides what becomes of it. A sample from the
+     * mode's selected source is published (as /ODOM in positioning-only mode, on the handler alias
+     * in both), becomes the pose that stamps the other two topics and keeps the status alive. In
+     * SLAM mode the sensor's ENU output is not that source: it only marks the RTK input as arriving.
+     *
+     * @param[in] sample  the pose and velocity
+     * @param[in] feed    where it came from: the driver's parser thread passes SENSOR_ENU for every
+     *                    ENU odometry message, the module's own subscription passes SUBSCRIBED_ODOM
      */
-    void OnOdometry(const OdomSample& sample);
+    void OnOdometry(const OdomSample& sample, OdomFeed feed);
 
     /**
      * @brief Has the startup watchdog concluded that this process needs to be re-created?

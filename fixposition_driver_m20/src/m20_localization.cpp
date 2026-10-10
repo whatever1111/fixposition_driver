@@ -325,16 +325,23 @@ void M20Localization::Stop() {
 
 // ---------------------------------------------------------------------------------------------------------------------
 
-void M20Localization::OnOdometry(const OdomSample& sample) {
+void M20Localization::OnOdometry(const OdomSample& sample, const OdomFeed feed) {
     const double steady = SteadyNow();
-    if (!sample.valid) {
+    const OdomInputAction action = DecideOdomInput(params_.odom_source, feed, sample.valid, sample.AllFinite());
+    if (action == OdomInputAction::RTK_HEALTH_ONLY) {
+        // Not the pose this module follows: all it shows is that the sensor is still talking
+        status_.MarkRx(StatusInput::RTK, steady);
         return;
     }
-    if (!sample.AllFinite()) {
+    if (action == OdomInputAction::SELECTED_NUMERIC_ERROR) {
         status_.MarkError(StatusError::NUMERIC, steady);
         RCLCPP_WARN_THROTTLE(logger_, *nh_->get_clock(), 5000, "M20: non-finite value in odometry — message dropped");
         return;
     }
+    if (action != OdomInputAction::SELECTED) {
+        return;
+    }
+    // Everything below is the selected source's path; no other feed gets here
 
     Stamp stamp = sample.stamp;
     // Only the sensor's own stamps need translating; a pose from another node is already on this axis
@@ -416,7 +423,7 @@ void M20Localization::OdomSubCb(const nav_msgs::msg::Odometry& msg) {
         Eigen::Vector3d(msg.twist.twist.linear.x, msg.twist.twist.linear.y, msg.twist.twist.linear.z);
     sample.angular_velocity =
         Eigen::Vector3d(msg.twist.twist.angular.x, msg.twist.twist.angular.y, msg.twist.twist.angular.z);
-    OnOdometry(sample);
+    OnOdometry(sample, OdomFeed::SUBSCRIBED_ODOM);
 }
 
 void M20Localization::ImuCb(const sensor_msgs::msg::Imu& msg) {
