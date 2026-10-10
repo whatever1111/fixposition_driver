@@ -6,19 +6,27 @@
 #   docker build -f release/Dockerfile --build-arg ROS_DISTRO=humble --target runtime ...
 #
 # Stages:
-#   builder — ROS base + toolchain. Builds the Fixposition SDK (plain cmake,
-#             PROJ off, tests off) and the driver workspace (colcon), then
-#             prunes the staged tree at /opt/fixposition down to binaries:
-#             no headers, no C/C++ sources, no python bindings, no dev files.
-#   runtime — ROS base + runtime libs, carrying ONLY the pruned /opt/fixposition.
-#             A guard step fails the build if anything source-like survived.
+#   compiled — ROS base + toolchain. Builds the Fixposition SDK (plain cmake,
+#              PROJ off, tests off) and the driver workspace (colcon, tests
+#              off), sources still in place.
+#   test     — compiled + the fixposition_driver_m20 unit tests, built and run.
+#              Fails unless every test passed and all the expected ones ran:
+#                docker build -f release/Dockerfile --build-arg ROS_DISTRO=... --target test .
+#              Not an ancestor of runtime: a runtime build skips it (BuildKit
+#              builds only the stages the target depends on).
+#   builder  — compiled, with the staged tree at /opt/fixposition pruned down
+#              to binaries: no headers, no C/C++ sources, no python bindings,
+#              no dev files.
+#   runtime  — ROS base + runtime libs, carrying ONLY the pruned /opt/fixposition.
+#              A guard step fails the build if anything source-like survived.
 #
 # The runtime stage is what gets published; release artifacts must never
-# contain source code.
+# contain source code. It stays the last stage, so it is also what a build
+# without --target produces.
 # ============================================================================
 ARG ROS_DISTRO=foxy
 
-FROM ros:${ROS_DISTRO} AS builder
+FROM ros:${ROS_DISTRO} AS compiled
 ARG ROS_DISTRO
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -80,6 +88,42 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash && cd /w/ws && \
         --cmake-args -DCMAKE_BUILD_TYPE=Release \
                      -DCMAKE_PREFIX_PATH=/opt/fixposition/fpsdk \
                      -DBUILD_TESTING=OFF
+
+
+FROM compiled AS test
+ARG ROS_DISTRO
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Same workspace and install base as the build above, reconfigured with the
+# tests on, so only the test executables of fixposition_driver_m20 are new.
+RUN source /opt/ros/${ROS_DISTRO}/setup.bash && cd /w/ws && \
+    colcon build --install-base /opt/fixposition/install \
+        --packages-select fixposition_driver_m20 \
+        --cmake-force-configure \
+        --cmake-args -DCMAKE_BUILD_TYPE=Release \
+                     -DCMAKE_PREFIX_PATH=/opt/fixposition/fpsdk \
+                     -DBUILD_TESTING=ON
+
+# colcon test exits 0 when a test fails; the verdict is colcon test-result,
+# which exits non-zero on any failure or error. It also exits 0 when nothing
+# ran at all, so each expected gtest executable must show up in its listing
+# with at least one test and none failed, errored or skipped.
+RUN source /opt/ros/${ROS_DISTRO}/setup.bash && cd /w/ws && \
+    colcon test --install-base /opt/fixposition/install \
+        --packages-select fixposition_driver_m20 \
+        --event-handlers console_direct+ && \
+    colcon test-result --all --verbose | tee /w/test-result.txt && \
+    for t in test_deskew test_status_monitor test_time_utils test_odometry_source_policy; do \
+        if ! grep -E "/${t}\.gtest\.xml: [1-9][0-9]* tests?, 0 errors, 0 failures, 0 skipped" \
+                /w/test-result.txt; then \
+            echo "m20 tests: no clean result for ${t}"; exit 1; \
+        fi; \
+    done
+
+
+FROM compiled AS builder
+ARG ROS_DISTRO
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Prune to binaries only. What remains: shared libs, executables, msg/launch/
 # config share files, and colcon's generated environment scripts.
