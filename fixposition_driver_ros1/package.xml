@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package format="2">
     <name>fixposition_driver_ros1</name>
-    <version>8.0.0</version>
+    <version>8.1.0</version>
     <description>Fixposition ROS1 driver</description>
     <maintainer email="support@fixposition.com">Fixposition Support</maintainer>
     <license>MIT</license>
@@ -20,5 +20,4 @@
     <depend>tf2_ros</depend>
     <depend>tf2_geometry_msgs</depend>
     <depend>fpsdk_common</depend>
-    <depend>fpsdk_ros1</depend>
 </package>
