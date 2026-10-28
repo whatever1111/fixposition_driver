@@ -17,17 +17,23 @@ construct over a branch-local edit.
 | difference | foxy | humble |
 |---|---|---|
 | `drdds` | system package (vendored copy has `COLCON_IGNORE`) | vendored copy is built |
-| SDK `bagwriter.cpp` | must be removed before building — see below | builds fine |
+| SDK `BagWriter` | excluded from the private SDK build copy — see below | retained |
 | packaging | native colcon workspace | docker image layered on `fslam-humble` |
 
 ## The SDK caveat (Foxy)
 
-`fixposition-sdk/fpsdk_ros2/src/bagwriter.cpp` includes
-`rosbag2_storage/storage_options.hpp`, which Foxy places under `rosbag2_cpp/`.
-The driver never uses `BagWriter`, so the build tooling deletes that source (plus
-`bagwriter.hpp` and `ext/rosbag2_cpp_writer.hpp`) before compiling the SDK. It is
-a submodule, so the deletion lives in the deploy repo's build script rather than
-here.
+The SDK's ROS 2 helpers now live in `fpsdk_common`. Its `BagWriter` requires
+rosbag2 headers and APIs that Foxy does not provide. The driver does not use
+`BagWriter`, so [release/Dockerfile](release/Dockerfile) copies the SDK to
+`/w/sdk`, records the source SDK HEAD, and removes the copy's Git metadata before
+applying [compat/foxy/no-bagwriter.patch](compat/foxy/no-bagwriter.patch) on Foxy.
+It checks the patch with `git apply --check` first and leaves the source
+submodule unchanged. The patch retains ROS 2 time, logging and message helpers;
+Humble uses the unpatched SDK and retains `BagWriter`.
+
+Native builds using separate deployment scripts must adopt this
+[compatibility procedure](compat/foxy/README.md); the old `fpsdk_ros2` file
+deletions no longer apply to this SDK layout.
 
 ## Why Foxy exists at all
 
