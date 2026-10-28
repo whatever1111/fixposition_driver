@@ -57,10 +57,12 @@ jobs:
             distro="${tag%%-v*}"
             version="${tag#*-v}"
           fi
-          echo "distro=${distro}"             >> "${GITHUB_OUTPUT}"
-          echo "version=${version}"           >> "${GITHUB_OUTPUT}"
-          echo "tag=${distro}-v${version}"    >> "${GITHUB_OUTPUT}"
-          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/fixposition-driver-m20" >> "${GITHUB_OUTPUT}"
+          {
+            echo "distro=${distro}"
+            echo "version=${version}"
+            echo "tag=${distro}-v${version}"
+            echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/fixposition-driver-m20"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -68,6 +70,7 @@ jobs:
           submodules: recursive
 
       - name: Build runtime image
+        # The shared Dockerfile builds fpsdk_common with the Foxy-only BagWriter patch.
         env:
           DISTRO: ${{ steps.rv.outputs.distro }}
           VERSION: ${{ steps.rv.outputs.version }}

@@ -51,27 +51,24 @@ RUN if [ -z "$(find /usr -name nlohmann_jsonConfig.cmake -print -quit)" ]; then 
 WORKDIR /w
 COPY . /w/repo
 
-# SDK, from the submodule. Foxy: rosbag2_storage headers live under rosbag2_cpp/,
-# so BagWriter (never used by the driver) cannot build — drop it, exactly as the
-# robot-side build script does.
+# Patch only the private SDK copy on Foxy; retain ROS2 time/logging helpers.
 RUN cp -a /w/repo/fixposition-sdk /w/sdk && \
+    git -C /w/repo/fixposition-sdk rev-parse HEAD && \
     if [ "${ROS_DISTRO}" = "foxy" ]; then \
-        rm -f /w/sdk/fpsdk_ros2/src/bagwriter.cpp \
-              /w/sdk/fpsdk_ros2/include/fpsdk_ros2/bagwriter.hpp \
-              /w/sdk/fpsdk_ros2/include/fpsdk_ros2/ext/rosbag2_cpp_writer.hpp && \
-        sed -i '/add_gtest(TARGET bagwriter_test/d' /w/sdk/fpsdk_ros2/CMakeLists.txt; \
+        sha256sum /w/repo/compat/foxy/no-bagwriter.patch && \
+        git -C /w/sdk apply --check /w/repo/compat/foxy/no-bagwriter.patch && \
+        git -C /w/sdk apply /w/repo/compat/foxy/no-bagwriter.patch; \
     fi
 
 RUN source /opt/ros/${ROS_DISTRO}/setup.bash && \
-    for comp in fpsdk_common fpsdk_ros2; do \
-        cmake -S /w/sdk/${comp} -B /w/build_${comp} \
+        cmake -S /w/sdk/fpsdk_common -B /w/build_fpsdk_common \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_INSTALL_PREFIX=/opt/fixposition/fpsdk \
               -DCMAKE_PREFIX_PATH=/opt/fixposition/fpsdk \
-              -DFPSDK_USE_PROJ=OFF -DBUILD_TESTING=OFF && \
-        cmake --build /w/build_${comp} --parallel "$(nproc)" && \
-        cmake --install /w/build_${comp}; \
-    done
+              -DFPSDK_USE_PROJ=OFF -DFPSDK_USE_FFMPEG=OFF -DFPSDK_USE_BZ2=OFF \
+              -DFPSDK_USE_ROS1=OFF -DFPSDK_USE_ROS2=ON -DFPSDK_BUILD_TESTING=OFF && \
+        cmake --build /w/build_fpsdk_common --parallel "$(nproc)" && \
+        cmake --install /w/build_fpsdk_common
 
 # Driver workspace: exactly the packages a ROS 2 deployment needs. The ROS 1
 # driver and the SDK tree stay out of colcon's sight. The vendored drdds is
