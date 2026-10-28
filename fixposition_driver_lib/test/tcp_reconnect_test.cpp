@@ -156,8 +156,7 @@ TEST_F(TcpConnectTest, FailedConnectionsDoNotLeakFileDescriptors) {
     ASSERT_EQ(bind(port_fd_, reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0) << std::strerror(errno);
     socklen_t address_size = sizeof(address);
     ASSERT_EQ(getsockname(port_fd_, reinterpret_cast<sockaddr*>(&address), &address_size), 0) << std::strerror(errno);
-    ASSERT_EQ(close(port_fd_), 0) << std::strerror(errno);
-    port_fd_ = -1;
+    // Keep the port reserved without listening until TearDown(), so every connection is refused.
 
     fixposition::DriverParams params;
     params.stream_ = "tcpcli://127.0.0.1:" + std::to_string(ntohs(address.sin_port));
