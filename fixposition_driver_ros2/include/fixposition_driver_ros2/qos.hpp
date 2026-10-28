@@ -19,7 +19,7 @@
 #include <string>
 
 /* EXTERNAL */
-#include <fpsdk_ros2/ext/rclcpp.hpp>
+#include "fixposition_driver_ros2/ext/rclcpp.hpp"
 
 /* PACKAGE */
 

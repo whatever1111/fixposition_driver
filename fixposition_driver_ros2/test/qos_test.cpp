@@ -23,7 +23,7 @@
 /* EXTERNAL */
 #include <gtest/gtest.h>
 
-#include <fpsdk_ros2/ext/rclcpp.hpp>
+#include "fixposition_driver_ros2/ext/rclcpp.hpp"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 #pragma GCC diagnostic ignored "-Wunused-parameter"

@@ -43,6 +43,7 @@ using fixposition::FixpositionDriver;
 class TestDriver : public FixpositionDriver {
    public:
     using FixpositionDriver::Connect;
+    using FixpositionDriver::Disconnect;
     using FixpositionDriver::FixpositionDriver;
     using FixpositionDriver::IsConnected;
     using FixpositionDriver::Read;
@@ -153,6 +154,20 @@ TEST_F(TcpReadTest, NeverWritesPastTheRequestedSize) {
     constexpr std::size_t HEAD_SIZE = 5;
     std::size_t largest_read = 0;
     ASSERT_NO_FATAL_FAILURE(ReceiveBytes(CORRIMU_FRAME, HEAD_SIZE, largest_read));
+}
+
+TEST_F(TcpReadTest, ReconnectsUsingTheOriginalStreamSpec) {
+    ASSERT_EQ(shutdown(sensor_fd_, SHUT_RDWR), 0);
+    close(sensor_fd_);
+    sensor_fd_ = -1;
+    driver_->Disconnect();
+    ASSERT_FALSE(driver_->IsConnected());
+    ASSERT_TRUE(driver_->Connect());
+    sensor_fd_ = accept(listen_fd_, nullptr, nullptr);
+    ASSERT_GE(sensor_fd_, 0);
+    ASSERT_NO_FATAL_FAILURE(SensorSends(CORRIMU_FRAME));
+    std::size_t largest_read = 0;
+    ASSERT_NO_FATAL_FAILURE(ReceiveBytes(CORRIMU_FRAME, 64, largest_read));
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
