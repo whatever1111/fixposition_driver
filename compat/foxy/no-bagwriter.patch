@@ -1,0 +1,226 @@
+--- a/fpsdk_common/include/fpsdk_common/ros2.hpp
++++ b/fpsdk_common/include/fpsdk_common/ros2.hpp
+@@ -33,8 +33,6 @@
+ #  pragma GCC diagnostic ignored "-Wshadow"
+ #  include <rclcpp/rclcpp.hpp>
+ //
+-#  include <rosbag2_cpp/writer.hpp>
+-#  include <rosbag2_storage/storage_options.hpp>
+ //
+ #  include <nav_msgs/msg/odometry.hpp>
+ #  include <sensor_msgs/msg/image.hpp>
+@@ -93,95 +91,6 @@
+  */
+ fpsdk::common::time::Time ConvTime(const rclcpp::Time& time);
+
+-/**
+- * @brief ROS2 bag writer helper
+- */
+-class BagWriter
+-{
+-   public:
+-    BagWriter();
+-    ~BagWriter();
+-
+-    /**
+-     * @brief Open bag for writing
+-     *
+-     * @param[in]  path      Path of the bag directory
+-     * @param[in]  mcap      Use mcap instead of sqlite3 format
+-     * @param[in]  compress  Compress bag more (only with mcap = true), 0 = zstd_small, >=1 = zstd_fast,
+-     *                       ignored with mcap = false
+-     *
+-     * @returns true if bag was sucessfully opened
+-     */
+-    bool Open(const std::string& path, const bool mcap = false, const int compress = 0);
+-
+-    /**
+-     * @brief Close bag
+-     */
+-    void Close();
+-
+-    /**
+-     * @brief Write a message to the bag
+-     *
+-     * @tparam     T      ROS message type
+-     * @param[in]  msg    The message
+-     * @param[in]  topic  Topic name
+-     * @param[in]  time   Bag record time
+-     *
+-     * @returns true if message was added, false otherwise (message definition missing)
+-     */
+-    template <typename T>
+-    bool WriteMessage(const T& msg, const std::string& topic, const rclcpp::Time& time)
+-    {
+-        bool ok = false;
+-        try {
+-            if (bag_) {
+-                bag_->write(msg, topic, time);
+-                ok = true;
+-            }
+-        } catch (const std::exception& ex) {
+-            WARNING("BagWriter: write fail: %s", ex.what());
+-        }
+-        return ok;
+-    }
+-
+-    /**
+-     * @brief Write a message to the bag
+-     *
+-     * @tparam     T      ROS message type
+-     * @param[in]  msg    The message
+-     * @param[in]  topic  Topic name
+-     * @param[in]  time   Bag record time
+-     */
+-    template <typename T>
+-    bool WriteMessage(const T& msg, const std::string& topic, const common::time::RosTime& time)
+-    {
+-        return WriteMessage(msg, topic, rclcpp::Time(time.sec_, time.nsec_, RCL_ROS_TIME));
+-    }
+-
+-    /**
+-     * @brief Add ROS message definition from .fpl
+-     *
+-     * @note No checks on the provided data are done!
+-     *
+-     * @param[in]  rosmsgdef  The message definition
+-     */
+-    void AddMsgDef(const common::fpl::RosMsgDef& rosmsgdef);
+-
+-    /**
+-     * @brief Write message from .fpl
+-     *
+-     * @note No checks on the provided data are done!
+-     *
+-     * @param[in]  rosmsgbin  The recorded message
+-     *
+-     * @returns true if message was added, false otherwise (e.g. ROS1->ROS2 conversion not implemented)
+-     */
+-    bool WriteMessage(const common::fpl::RosMsgBin& rosmsgbin);
+-
+-   private:
+-    std::unique_ptr<rosbag2_cpp::Writer> bag_;            //!< Bag file handle
+-    std::map<std::string, common::fpl::RosMsgDef> defs_;  //!< Message definitions (connection headers)
+-};
+ #  ifdef _DOXYGEN_
+
+ // Dummy documentation
+--- a/fpsdk_common/src/ros2.cpp
++++ b/fpsdk_common/src/ros2.cpp
+@@ -74,116 +74,6 @@
+ }
+ /* ****************************************************************************************************************** */
+
+-BagWriter::BagWriter()
+-{
+-}
+-
+-BagWriter::~BagWriter()
+-{
+-    Close();
+-}
+-
+-// ---------------------------------------------------------------------------------------------------------------------
+-
+-bool BagWriter::Open(const std::string& path, const bool mcap, const int compress)
+-{
+-    Close();
+-    bag_ = std::make_unique<rosbag2_cpp::Writer>();
+-    rosbag2_storage::StorageOptions opts;
+-    opts.uri = path;
+-    if (mcap) {
+-        opts.storage_id = "mcap";  // apt install ros-${ROS_DISTRO}-rosbag2-storage-mcap
+-        opts.storage_preset_profile = (compress > 0 ? "zstd_small" : "zstd_fast");
+-    } else {
+-        opts.storage_id = "sqlite3";
+-    }
+-    try {
+-        bag_->open(opts);
+-    } catch (const std::exception& ex) {
+-        WARNING("BagWriter: open fail %s: %s. Maybe the %s storage plugin is not installed?", path.c_str(), ex.what(),
+-            opts.storage_id.c_str());
+-        bag_.reset();
+-        return false;
+-    }
+-    DEBUG("BagWriter: %s", path.c_str());
+-
+-    return true;
+-}
+-
+-// ---------------------------------------------------------------------------------------------------------------------
+-
+-void BagWriter::Close()
+-{
+-    if (bag_) {
+-        bag_->close();
+-        bag_.reset();
+-    }
+-}
+-
+-// ---------------------------------------------------------------------------------------------------------------------
+-
+-void BagWriter::AddMsgDef(const common::fpl::RosMsgDef& rosmsgdef)
+-{
+-    if (rosmsgdef.valid_ && (defs_.find(rosmsgdef.topic_name_) == defs_.end())) {
+-        DEBUG("BagWriter: %s", rosmsgdef.info_.c_str());
+-        defs_[rosmsgdef.topic_name_] = rosmsgdef;
+-    }
+-}
+-
+-// ---------------------------------------------------------------------------------------------------------------------
+-
+-template <typename Ros1MsgT, typename Ros2MsgT>
+-inline bool WriteMessageEx(
+-    const common::fpl::RosMsgDef& rosmsgdef, const common::fpl::RosMsgBin& rosmsgbin, BagWriter& bag)
+-{
+-    if (rosmsgdef.msg_name_ == ros::message_traits::datatype<Ros1MsgT>()) {
+-        Ros1MsgT ros1;
+-        common::ros1::DeserializeMessage(rosmsgbin.msg_data_, ros1);
+-        Ros2MsgT ros2;
+-        Ros1ToRos2(ros1, ros2);
+-        bag.WriteMessage(ros2, rosmsgbin.topic_name_, rosmsgbin.rec_time_);
+-        return true;
+-    } else {
+-        return false;
+-    }
+-}
+-
+-bool BagWriter::WriteMessage(const common::fpl::RosMsgBin& rosmsgbin)
+-{
+-    if (!rosmsgbin.valid_) {
+-        return false;
+-    }
+-
+-    const auto& entry = defs_.find(rosmsgbin.topic_name_);
+-    if (entry == defs_.end()) {
+-        WARNING("BagWriter: missing message definition for %s", rosmsgbin.topic_name_.c_str());
+-
+-        WARNING_THR(1000, "Missing ROSMSGDEF for ROSMSGBIN %s", rosmsgbin.info_.c_str());
+-        return false;
+-    }
+-
+-    const auto& rosmsgdef = entry->second;
+-
+-    // For ROS2 we have to instantiate the ROS1 message in order to be able to convert it to the corresponding ROS2
+-    // message type, which includes the message meta data and definition. This can then be written to the bag. Only some
+-    // conversions are implemented.
+-    try {
+-        if (WriteMessageEx<sensor_msgs::Imu, sensor_msgs::msg::Imu>(rosmsgdef, rosmsgbin, *this) ||
+-            WriteMessageEx<sensor_msgs::Temperature, sensor_msgs::msg::Temperature>(rosmsgdef, rosmsgbin, *this) ||
+-            WriteMessageEx<sensor_msgs::Image, sensor_msgs::msg::Image>(rosmsgdef, rosmsgbin, *this) ||
+-            WriteMessageEx<nav_msgs::Odometry, nav_msgs::msg::Odometry>(rosmsgdef, rosmsgbin, *this) ||
+-            WriteMessageEx<tf2_msgs::TFMessage, tf2_msgs::msg::TFMessage>(rosmsgdef, rosmsgbin, *this)) {
+-        } else {
+-            throw std::runtime_error("conversion not implemented");
+-        }
+-    } catch (std::exception& ex) {
+-        WARNING("BagWriter: write fail: %s %s", rosmsgdef.msg_name_.c_str(), ex.what());
+-        return false;
+-    }
+-
+-    return true;
+-}
+-
+ /* ****************************************************************************************************************** */
+ }  // namespace ros2
+ }  // namespace common
