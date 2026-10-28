@@ -16,12 +16,18 @@ if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_compile_definitions(NDEBUG)
 endif()
 
+set(_unused "${FPSDK_BUILD_TESTING}") # suppress warning
+set(_unused "${FPSDK_USE_PROJ}") # suppress warning
+set(_unused "${FPSDK_USE_FFMPEG}") # suppress warning
+set(_unused "${FPSDK_USE_BZ2}") # suppress warning
+set(_unused "${CMAKE_C_COMPILER}") # suppress warning
 
 # DEPENDENCIES =========================================================================================================
 
 find_package(Boost 1.65.0 REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(fpsdk_common REQUIRED)
+find_package(Threads REQUIRED)
 
 include_directories(include
   ${EIGEN3_INCLUDE_DIR}
