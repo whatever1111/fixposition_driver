@@ -162,7 +162,8 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash && cd /w/ws && \
 # which exits non-zero on any failure or error. It also exits 0 when nothing
 # ran at all, so each expected gtest executable must show up in its listing
 # with at least one test and none failed, errored or skipped.
-RUN source /opt/ros/${ROS_DISTRO}/setup.bash && cd /w/ws && \
+RUN source /opt/ros/${ROS_DISTRO}/setup.bash && \
+    export LD_LIBRARY_PATH=/opt/fixposition/fpsdk/lib:${LD_LIBRARY_PATH:-} && cd /w/ws && \
     colcon test --install-base /opt/fixposition/install \
         --packages-select fixposition_driver_lib fixposition_driver_m20 \
         --event-handlers console_direct+ && \
