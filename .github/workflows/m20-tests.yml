@@ -6,9 +6,9 @@ name: m20-tests
 
 on:
     push:
-        branches: [m20-foxy, m20-humble, m20]
+        branches: [m20-foxy, m20-humble, m20, 'upgrade/m20*-sdk-*']
     pull_request:
-        branches: [m20-foxy, m20-humble, m20]
+        branches: [m20-foxy, m20-humble, m20, 'upgrade/m20*-sdk-*']
     workflow_dispatch:
 
 permissions:
@@ -30,11 +30,11 @@ jobs:
                     # The branch a pull request targets, otherwise the branch that was pushed or dispatched
                     TARGET_BRANCH: ${{ github.base_ref || github.ref_name }}
               run: |
-                  if [ "${TARGET_BRANCH}" = "m20-foxy" ]; then
-                      distro=foxy
-                  else
-                      distro=humble
-                  fi
+                  case "${TARGET_BRANCH}" in
+                      m20-foxy|upgrade/m20-foxy-sdk-*) distro=foxy ;;
+                      m20|m20-humble|upgrade/m20-sdk-*|upgrade/m20-humble-sdk-*) distro=humble ;;
+                      *) echo "Unsupported M20 branch: ${TARGET_BRANCH}" >&2; exit 1 ;;
+                  esac
                   echo "${TARGET_BRANCH} -> ${distro}"
                   echo "ros_distro=${distro}" >> "${GITHUB_OUTPUT}"
             - name: Build the driver and run the m20 unit tests
