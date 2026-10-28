@@ -149,10 +149,10 @@ ARG ROS_DISTRO
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Same workspace and install base as the build above, reconfigured with the
-# tests on, so only the test executables of fixposition_driver_m20 are new.
+# tests on, so only the driver library and M20 test executables are new.
 RUN source /opt/ros/${ROS_DISTRO}/setup.bash && cd /w/ws && \
     colcon build --install-base /opt/fixposition/install \
-        --packages-select fixposition_driver_m20 \
+        --packages-select fixposition_driver_lib fixposition_driver_m20 \
         --cmake-force-configure \
         --cmake-args -DCMAKE_BUILD_TYPE=Release \
                      -DCMAKE_PREFIX_PATH=/opt/fixposition/fpsdk \
@@ -164,10 +164,11 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash && cd /w/ws && \
 # with at least one test and none failed, errored or skipped.
 RUN source /opt/ros/${ROS_DISTRO}/setup.bash && cd /w/ws && \
     colcon test --install-base /opt/fixposition/install \
-        --packages-select fixposition_driver_m20 \
+        --packages-select fixposition_driver_lib fixposition_driver_m20 \
         --event-handlers console_direct+ && \
     colcon test-result --all --verbose | tee /w/test-result.txt && \
-    for t in test_deskew test_status_monitor test_time_utils test_odometry_source_policy; do \
+    for t in test_deskew test_status_monitor test_time_utils test_odometry_source_policy \
+             fixposition_driver_lib_tcp_reconnect_test; do \
         if ! grep -E "/${t}\.gtest\.xml: [1-9][0-9]* tests?, 0 errors, 0 failures, 0 skipped" \
                 /w/test-result.txt; then \
             echo "m20 tests: no clean result for ${t}"; exit 1; \
