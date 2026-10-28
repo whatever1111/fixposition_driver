@@ -22,6 +22,7 @@
 
 /* EXTERNAL */
 #include <arpa/inet.h>
+#include <dirent.h>
 #include <gtest/gtest.h>
 #include <netinet/in.h>
 #include <poll.h>
@@ -119,6 +120,57 @@ TEST_F(TcpReconnectTest, ReconnectsAfterOrderlyPeerClose) {
     ASSERT_NO_FATAL_FAILURE(AcceptSensorConnection()) << "No second TCP connection after orderly peer close";
     ASSERT_NO_FATAL_FAILURE(SendFrame());
     ASSERT_TRUE(WaitForFrames(2)) << "The reconnected driver did not deliver the frame";
+}
+
+int CountOpenFileDescriptors() {
+    std::unique_ptr<DIR, int (*)(DIR*)> directory(opendir("/proc/self/fd"), closedir);
+    if (!directory) {
+        return -1;
+    }
+    int count = 0;
+    while (const auto* entry = readdir(directory.get())) {
+        if ((std::strcmp(entry->d_name, ".") != 0) && (std::strcmp(entry->d_name, "..") != 0)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+class TcpConnectTest : public ::testing::Test {
+   protected:
+    void TearDown() override {
+        if (port_fd_ >= 0) {
+            close(port_fd_);
+        }
+    }
+
+    int port_fd_ = -1;
+};
+
+TEST_F(TcpConnectTest, FailedConnectionsDoNotLeakFileDescriptors) {
+    port_fd_ = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    ASSERT_GE(port_fd_, 0) << std::strerror(errno);
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    ASSERT_EQ(bind(port_fd_, reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0) << std::strerror(errno);
+    socklen_t address_size = sizeof(address);
+    ASSERT_EQ(getsockname(port_fd_, reinterpret_cast<sockaddr*>(&address), &address_size), 0) << std::strerror(errno);
+    ASSERT_EQ(close(port_fd_), 0) << std::strerror(errno);
+    port_fd_ = -1;
+
+    fixposition::DriverParams params;
+    params.stream_ = "tcpcli://127.0.0.1:" + std::to_string(ntohs(address.sin_port));
+    const int before = CountOpenFileDescriptors();
+    ASSERT_GE(before, 0) << std::strerror(errno);
+    constexpr int ATTEMPTS = 16;
+    for (int attempt = 0; attempt < ATTEMPTS; ++attempt) {
+        fixposition::FixpositionDriver driver(params);
+        EXPECT_FALSE(driver.StartDriver()) << "Attempt " << attempt << " unexpectedly connected";
+    }
+    const int after = CountOpenFileDescriptors();
+    ASSERT_GE(after, 0) << std::strerror(errno);
+    EXPECT_EQ(after, before) << ATTEMPTS << " refused connections must not leak descriptors";
 }
 
 }  // namespace

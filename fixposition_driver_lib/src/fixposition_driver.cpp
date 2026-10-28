@@ -108,6 +108,7 @@ bool FixpositionDriver::ConnectTcp(const std::string& ip, const int port) {
 
     if (res != 0) {
         WARNING("Failed connecting to %s: %s", params_.stream_.c_str(), string::StrError(errno).c_str());
+        close(fd);
         return false;
     }
 
