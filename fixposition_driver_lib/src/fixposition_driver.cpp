@@ -210,8 +210,12 @@ std::size_t FixpositionDriver::Read(uint8_t* buf, const std::size_t size, const 
         } else {
             rv = read(sensor_fd_, buf, size);
         }
-        // We have some data
-        if (rv >= 0) {
+        // The TCP peer closed the connection
+        if ((rv == 0) && !serial_) {
+            WARNING("Sensor closed the TCP connection");
+        }
+        // We have some data (a serial read may also return zero)
+        else if (rv >= 0) {
             return rv;
         }
         // Perhaps a problem

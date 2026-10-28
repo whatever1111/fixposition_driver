@@ -93,3 +93,16 @@ install(FILES
   DESTINATION lib/cmake/${PROJECT_NAME})
 
 export(EXPORT ${PROJECT_NAME}-targets FILE ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-targets.cmake)
+
+
+# TESTS ================================================================================================================
+
+# This plain CMake package does not define BUILD_TESTING, so the tests are only built on -DBUILD_TESTING=ON (ROS 2)
+if(BUILD_TESTING)
+    enable_testing()
+    find_package(ament_cmake_gtest REQUIRED)
+    ament_add_gtest(${PROJECT_NAME}_tcp_reconnect_test test/tcp_reconnect_test.cpp TIMEOUT 60)
+    if(TARGET ${PROJECT_NAME}_tcp_reconnect_test)
+        target_link_libraries(${PROJECT_NAME}_tcp_reconnect_test ${PROJECT_NAME})
+    endif()
+endif()
