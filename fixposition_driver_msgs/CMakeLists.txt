@@ -115,7 +115,6 @@ elseif(${ROS_VERSION} EQUAL 2)
 
     ament_export_dependencies(rosidl_default_runtime)
 
-    rosidl_get_typesupport_target(cpp_typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
 
     add_library(${PROJECT_NAME}_lib SHARED
         src/data_to_ros.cpp
@@ -129,12 +128,21 @@ elseif(${ROS_VERSION} EQUAL 2)
         ${EIGEN3_INCLUDE_DIR}
     )
 
-    target_link_libraries(${PROJECT_NAME}_lib PUBLIC
-        ${cpp_typesupport_target}
-        ${fixposition_driver_lib_LIBRARIES}
-        ${fpsdk_common_LIBRARIES}
-        ${fpsdk_common_LIBRARIES}
-    )
+    if(COMMAND rosidl_get_typesupport_target)
+        rosidl_get_typesupport_target(cpp_typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
+        target_link_libraries(${PROJECT_NAME}_lib PUBLIC
+            ${cpp_typesupport_target}
+            ${fixposition_driver_lib_LIBRARIES}
+            ${fpsdk_common_LIBRARIES}
+        )
+    else()
+        # Foxy's helper uses the plain signature; do not mix it with PUBLIC.
+        rosidl_target_interfaces(${PROJECT_NAME}_lib ${PROJECT_NAME} rosidl_typesupport_cpp)
+        target_link_libraries(${PROJECT_NAME}_lib
+            ${fixposition_driver_lib_LIBRARIES}
+            ${fpsdk_common_LIBRARIES}
+        )
+    endif()
 
     install(DIRECTORY include/
         DESTINATION include/${PROJECT_NAME}
