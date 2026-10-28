@@ -84,7 +84,6 @@ void FixpositionDriver::Disconnect() {
             DisconnectTcp();
         }
         sensor_fd_ = -1;
-        params_.stream_.clear();
     }
 }
 
@@ -209,7 +208,7 @@ std::size_t FixpositionDriver::Read(uint8_t* buf, const std::size_t size, const 
         if (serial_) {
             rv = recv(sensor_fd_, buf, size, MSG_DONTWAIT);
         } else {
-            rv = read(sensor_fd_, buf, sizeof(buf));
+            rv = read(sensor_fd_, buf, size);
         }
         // We have some data
         if (rv >= 0) {

@@ -21,7 +21,8 @@
 /* EXTERNAL */
 #include <fixposition_driver_lib/helper.hpp>
 #include <fixposition_driver_m20/m20_localization.hpp>
-#include <fpsdk_ros2/ext/rclcpp.hpp>
+
+#include "fixposition_driver_ros2/ext/rclcpp.hpp"
 
 /* PACKAGE */
 #include "data_to_ros2.hpp"
