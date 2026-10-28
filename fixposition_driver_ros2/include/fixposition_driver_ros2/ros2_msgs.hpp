@@ -13,12 +13,36 @@
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <std_msgs/msg/u_int8_multi_array.hpp>
+#if __has_include(<tf2/LinearMath/Transform.hpp>)
 #include <tf2/LinearMath/Transform.hpp>
+#else
+#include <tf2/LinearMath/Transform.h>
+#endif
+#if __has_include(<tf2_eigen/tf2_eigen.hpp>)
 #include <tf2_eigen/tf2_eigen.hpp>
+#else
+#include <tf2_eigen/tf2_eigen.h>
+#endif
+#if __has_include(<tf2_geometry_msgs/tf2_geometry_msgs.hpp>)
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#else
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#endif
+#if __has_include(<tf2_ros/static_transform_broadcaster.hpp>)
 #include <tf2_ros/static_transform_broadcaster.hpp>
+#else
+#include <tf2_ros/static_transform_broadcaster.h>
+#endif
+#if __has_include(<tf2_ros/transform_broadcaster.hpp>)
 #include <tf2_ros/transform_broadcaster.hpp>
+#else
+#include <tf2_ros/transform_broadcaster.h>
+#endif
+#if __has_include(<tf2_ros/transform_listener.hpp>)
 #include <tf2_ros/transform_listener.hpp>
+#else
+#include <tf2_ros/transform_listener.h>
+#endif
 
 // RTCM
 #include <rtcm_msgs/msg/message.hpp>

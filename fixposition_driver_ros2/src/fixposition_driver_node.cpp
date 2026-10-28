@@ -424,15 +424,16 @@ bool FixpositionDriverNode::StartNode() {
 
     // Subscribe to correction data input
     if (!params_.corr_topic_.empty()) {
-        _SUB(corr_sub_, rtcm_msgs::msg::Message, params_.corr_topic_, 100, [this](const rtcm_msgs::msg::Message& msg) {
-            driver_.SendCorrectionData(msg.message.data(), msg.message.size());
-        });
+        _SUB(corr_sub_, rtcm_msgs::msg::Message, params_.corr_topic_, 100,
+             [this](rtcm_msgs::msg::Message::ConstSharedPtr msg) {
+                 driver_.SendCorrectionData(msg->message.data(), msg->message.size());
+             });
     }
 
     // Subscribe to wheelspeed input
     if (!params_.speed_topic_.empty()) {
         _SUB(ws_sub_, fpmsgs::Speed, params_.speed_topic_, 10,
-             [this](const fpmsgs::Speed& msg) { driver_.SendWheelspeedData(SpeedMsgToWheelspeedData(msg)); });
+             [this](fpmsgs::Speed::ConstSharedPtr msg) { driver_.SendWheelspeedData(SpeedMsgToWheelspeedData(*msg)); });
     }
 
     // Subscribe to wheelspeed input
@@ -441,20 +442,20 @@ bool FixpositionDriverNode::StartNode() {
             switch (params_.converter_topic_type_) {
                 case DriverParams::VelTopicType::TWIST:
                     _SUB(ws_conv_twist_sub_, geometry_msgs::msg::Twist, params_.converter_input_topic_, 10,
-                         [this](const geometry_msgs::msg::Twist& msg) {
-                             driver_.SendWheelspeedData(Vector3MsgToWheelspeedData(msg.linear, params_));
+                         [this](geometry_msgs::msg::Twist::ConstSharedPtr msg) {
+                             driver_.SendWheelspeedData(Vector3MsgToWheelspeedData(msg->linear, params_));
                          });
                     break;
                 case DriverParams::VelTopicType::TWISTWITHCOV:
                     _SUB(ws_conv_twistcov_sub_, geometry_msgs::msg::TwistWithCovariance, params_.converter_input_topic_,
-                         10, [this](const geometry_msgs::msg::TwistWithCovariance& msg) {
-                             driver_.SendWheelspeedData(Vector3MsgToWheelspeedData(msg.twist.linear, params_));
+                         10, [this](geometry_msgs::msg::TwistWithCovariance::ConstSharedPtr msg) {
+                             driver_.SendWheelspeedData(Vector3MsgToWheelspeedData(msg->twist.linear, params_));
                          });
                     break;
                 case DriverParams::VelTopicType::ODOMETRY:
                     _SUB(ws_conv_odom_sub_, nav_msgs::msg::Odometry, params_.converter_input_topic_, 10,
-                         [this](const nav_msgs::msg::Odometry& msg) {
-                             driver_.SendWheelspeedData(Vector3MsgToWheelspeedData(msg.twist.twist.linear, params_));
+                         [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) {
+                             driver_.SendWheelspeedData(Vector3MsgToWheelspeedData(msg->twist.twist.linear, params_));
                          });
                     break;
                 default:
@@ -780,7 +781,7 @@ int main(int argc, char** argv) {
             // Do the same as rclpp::spin(), but also handle CTRL-C / SIGINT nicely
             // Callbacks execute in main thread
             while (rclcpp::ok() && !sigint.ShouldAbort()) {
-                rclcpp::spin_until_future_complete(nh, std::promise<bool>().get_future(),
+                rclcpp::spin_until_future_complete(nh, std::promise<bool>().get_future().share(),
                                                    std::chrono::milliseconds(337));
             }
 
