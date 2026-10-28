@@ -54,6 +54,7 @@ COPY . /w/repo
 # Patch only the private SDK copy on Foxy; retain ROS2 time/logging helpers.
 RUN cp -a /w/repo/fixposition-sdk /w/sdk && \
     git -C /w/repo/fixposition-sdk rev-parse HEAD && \
+    rm -rf /w/sdk/.git && \
     if [ "${ROS_DISTRO}" = "foxy" ]; then \
         sha256sum /w/repo/compat/foxy/no-bagwriter.patch && \
         git -C /w/sdk apply --check /w/repo/compat/foxy/no-bagwriter.patch && \
