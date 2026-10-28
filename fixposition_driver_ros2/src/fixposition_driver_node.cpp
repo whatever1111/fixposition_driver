@@ -48,7 +48,7 @@ m20::OdomSample ToM20OdomSample(const OdometryData& data) {
     m20::OdomSample sample;
     sample.valid = data.valid && data.pose.valid && data.twist.valid;
 
-    const int64_t nanoseconds = fpsdk::ros2::utils::ConvTime(data.stamp).nanoseconds();
+    const int64_t nanoseconds = fpsdk::common::ros2::ConvTime(data.stamp).nanoseconds();
     if (nanoseconds > 0) {
         sample.stamp.sec = static_cast<int32_t>(nanoseconds / 1000000000);
         sample.stamp.nsec = static_cast<uint32_t>(nanoseconds % 1000000000);
