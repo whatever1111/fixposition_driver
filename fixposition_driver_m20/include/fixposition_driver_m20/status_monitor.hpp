@@ -19,6 +19,7 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <mutex>
 
 namespace fixposition {
 namespace m20 {
@@ -64,6 +65,8 @@ struct StatusTimeouts {
     double matching = 0.5;
     //! How long a failure event keeps being reported after it last happened [s]
     double error_hold = 5.0;
+    //! How long the selected odometry must flow without a break after an initial pose [s], > 0
+    double initialpose_settle = 2.0;
 };
 
 /**
@@ -93,6 +96,9 @@ enum class InputState {
  */
 struct StatusHealth {
     StatusVerdict verdict = StatusVerdict::UNINITIALIZED;
+    //! An initial pose is waiting for the odometry to settle (StatusMonitor::MarkInitialPose()).
+    //! Independent of the verdict, which goes on being evaluated as if no pose had arrived.
+    bool initializing = false;
     // exec_val
     bool overtime = false;         //!< a scan overran its budget within the error hold
     bool numeric_error = false;    //!< a non-finite value arrived within the error hold
@@ -115,7 +121,8 @@ struct StatusHealth {
  * @brief Liveness and failure bookkeeping behind /LOCATION_STATUS
  *
  * Thread-safe: marks come from the sensor callbacks, the driver's parser thread and the deskew
- * worker, while Compute() runs on whichever thread publishes the status.
+ * worker, while Compute() runs on whichever thread publishes the status. Liveness and failures are
+ * atomics; the initial-pose hold is guarded by hold_mutex_, a leaf lock.
  */
 class StatusMonitor {
    public:
@@ -140,6 +147,23 @@ class StatusMonitor {
      * @brief Note that an odometry message has just gone out (or come in, in SLAM mode)
      */
     void MarkOdomAlive(double now);
+
+    /**
+     * @brief Note that an initial pose has just been received
+     *
+     * Compute() reports initializing from now until the odometry has been flowing (as odom_stalled
+     * judges it) without a break for timeouts.initialpose_settle, counted from its first
+     * MarkOdomAlive() at or after @p now. A break restarts the count, and so does another initial
+     * pose. Once the odometry has settled, a later break is an ordinary stall again.
+     *
+     * Settling is judged from the odometry because that is all the driver can see. The pose is
+     * applied, or not, by the localization pipeline: LIO-SLAM's pose graph acknowledges only a pose
+     * it has installed or queued, and rejects an operator's pose without an acknowledgement while
+     * it is aligned to GNSS. Neither an acknowledgement nor its absence would therefore tell the
+     * driver whether this pose took effect, while odometry that keeps flowing says the pipeline is
+     * running again either way.
+     */
+    void MarkInitialPose(double now);
 
     /**
      * @brief Note that a valid pose has been seen, which leaves the uninitialized state for good
@@ -168,6 +192,20 @@ class StatusMonitor {
     double Timeout(StatusInput input) const;
     //! The state of an input this configuration monitors
     InputState Monitored(StatusInput input, double now) const;
+    //! Is an initial pose still waiting for the odometry to settle at @p now?
+    bool HoldingInitialPose(double now) const;
+
+    //! The odometry since an initial pose. Lock: hold_mutex_
+    struct InitialPoseHold {
+        bool active = false;       //!< an initial pose arrived and the odometry has not settled since
+        double received = 0.0;     //!< when it arrived
+        bool counting = false;     //!< the odometry has flowed since, starting run_start
+        double run_start = 0.0;    //!< first sample of the unbroken run
+        double last_sample = 0.0;  //!< newest sample of the run
+        //! Had the run flowed for the settle time by @p end? It flows until its newest sample is older
+        //! than the odometry timeout.
+        bool SettledBy(double end, const StatusTimeouts& timeouts) const;
+    };
 
     StatusTimeouts timeouts_;
     bool matching_enabled_;
@@ -175,6 +213,8 @@ class StatusMonitor {
     std::array<std::atomic<double>, static_cast<std::size_t>(StatusError::COUNT)> last_error_;
     std::atomic<double> last_odom_alive_;
     std::atomic<bool> initialized_;
+    mutable std::mutex hold_mutex_;
+    InitialPoseHold hold_;
 };
 
 /* ****************************************************************************************************************** */
