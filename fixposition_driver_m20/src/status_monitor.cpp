@@ -4,6 +4,7 @@
  */
 
 /* LIBC/STL */
+#include <algorithm>
 #include <limits>
 
 /* PACKAGE */
@@ -36,7 +37,45 @@ void StatusMonitor::MarkError(const StatusError error, const double now) {
     last_error_[static_cast<std::size_t>(error)].store(now);
 }
 
-void StatusMonitor::MarkOdomAlive(const double now) { last_odom_alive_.store(now); }
+void StatusMonitor::MarkOdomAlive(const double now) {
+    last_odom_alive_.store(now);
+
+    std::lock_guard<std::mutex> lock(hold_mutex_);
+    if (!hold_.active || (now < hold_.received)) {
+        return;
+    }
+    if (hold_.counting && hold_.SettledBy(now, timeouts_)) {
+        // Settled, by this sample or before a break that this sample ends
+        hold_.active = false;
+        return;
+    }
+    if (!hold_.counting || ((now - hold_.last_sample) > timeouts_.rtk)) {
+        // The first sample since the initial pose, or the first after a break: the count starts here
+        hold_.counting = true;
+        hold_.run_start = now;
+        hold_.last_sample = now;
+    } else {
+        hold_.last_sample = std::max(hold_.last_sample, now);
+    }
+}
+
+void StatusMonitor::MarkInitialPose(const double now) {
+    std::lock_guard<std::mutex> lock(hold_mutex_);
+    hold_.active = true;
+    hold_.received = now;
+    hold_.counting = false;
+}
+
+bool StatusMonitor::InitialPoseHold::SettledBy(const double end, const StatusTimeouts& timeouts) const {
+    // The run keeps flowing until its newest sample is older than the odometry timeout
+    const double flowing_until = std::min(end, last_sample + timeouts.rtk);
+    return (flowing_until - run_start) >= timeouts.initialpose_settle;
+}
+
+bool StatusMonitor::HoldingInitialPose(const double now) const {
+    std::lock_guard<std::mutex> lock(hold_mutex_);
+    return hold_.active && !(hold_.counting && hold_.SettledBy(now, timeouts_));
+}
 
 void StatusMonitor::SetInitialized() { initialized_.store(true); }
 
@@ -116,6 +155,7 @@ StatusHealth StatusMonitor::Compute(const double now) const {
     } else {
         health.verdict = StatusVerdict::NORMAL;
     }
+    health.initializing = HoldingInitialPose(now);
 
     return health;
 }

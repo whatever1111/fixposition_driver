@@ -109,7 +109,8 @@ StatusSnapshot EncodeLegacyStatus(const StatusHealth& health) {
 
 StatusSnapshot EncodeV120Status(const StatusHealth& health) {
     StatusSnapshot snapshot;
-    snapshot.total_status = V120Total(health.verdict);
+    // The specification asks for "initializing" after an initial pose until the localization is stable
+    snapshot.total_status = health.initializing ? v1_2_0::TOTAL_INITIALIZING : V120Total(health.verdict);
     snapshot.overtime = V120Exec(health.overtime);
     snapshot.numeric_error = V120Exec(health.numeric_error);
     snapshot.timestamp_error = V120Exec(health.timestamp_error);
