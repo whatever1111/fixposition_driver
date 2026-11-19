@@ -12,8 +12,8 @@
  *                     stamp, so its header stamp is that of a real /ODOM message. Runs in a worker
  *                     thread (latest scan wins) so a slow scan never stalls the odometry.
  *   /LOCATION_STATUS  drdds/LocationStatus at 2 Hz, sharing the same stamp, reporting input liveness
- *                     and execution health in the numbering m20.status_contract selects. Under the
- *                     v1.2.0 contract an initial pose (m20.initialpose_topic) is reported as
+ *                     and execution health in the numbering of the OEM's specification v1.2.0
+ *                     (status_contract.hpp). An initial pose (m20.initialpose_topic) is reported as
  *                     initializing until the odometry has settled again.
  *
  * The module also feeds the robot's leg odometry (drdds/MotionInfo) back to the positioning sensor

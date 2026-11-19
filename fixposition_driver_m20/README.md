@@ -10,7 +10,7 @@ the parameters.
 |---|---|---|
 | `deskew.hpp/cpp` | cloud layout parsing, IMU rate integration, the in-place motion compensation | no |
 | `status_monitor.hpp/cpp` | input liveness, sticky failure flags, the initial pose hold, the verdict | no |
-| `status_contract.hpp/cpp` | the wire contracts: one pure encoder per numbering of `/LOCATION_STATUS` | no |
+| `status_contract.hpp/cpp` | the wire contract: the pure encoder that numbers `/LOCATION_STATUS` as the OEM's specification v1.2.0 does | no |
 | `time_utils.hpp/cpp` | stamp arithmetic, sensor-to-host clock retiming | no |
 | `m20_params.hpp` | the parameter struct | no |
 | `odometry_source_policy.hpp` | which odometry feed each mode follows, and what the other one may still do | no |
@@ -25,7 +25,7 @@ subscriptions on a real node.
 | Thread | Does |
 |---|---|
 | driver parser | `OnOdometry(sample, SENSOR_ENU)` → in `fpa_odomenu` mode publishes `/ODOM` immediately; in `subscribe` mode only marks the RTK input |
-| node executor | lidar / IMU / leg-odometry callbacks, the followed `/ODOM` in `subscribe` mode (`OnOdometry(sample, SUBSCRIBED_ODOM)`), initial poses (`v1.2.0` only), the status fallback timer, the startup watchdog |
+| node executor | lidar / IMU / leg-odometry callbacks, the followed `/ODOM` in `subscribe` mode (`OnOdometry(sample, SUBSCRIBED_ODOM)`), initial poses, the status fallback timer, the startup watchdog |
 | deskew worker | one scan at a time: deskew, publish `/LOC_BODY_POINTS`, publish the scheduled status |
 
 Each mutex is a leaf — none is ever held while taking another:
@@ -75,8 +75,7 @@ All under the `m20.` prefix. Defaults are the M20's field-validated values.
 | `deskew_time_quantum_sec` | `0.001` | rotation lookup bucket; 0 evaluates one rotation per point |
 | `lidar_to_base_xyzrpy` | six zeros | lidar→base extrinsic; identity on the M20, whose URDF transforms are all identity |
 | `location_status_topic` / `location_status_rate_hz` | `/LOCATION_STATUS` / `2.0` | OEM contract |
-| `status_contract` | `legacy` | the numbering `/LOCATION_STATUS` goes out in: `legacy` or `v1.2.0`, whichever the robot's OEM firmware reads (see [Status semantics](#status-semantics)); any other value fails startup |
-| `initialpose_topic` | `/initialpose` | `v1.2.0` only: initial poses to report as initializing (see [Initial pose](#initial-pose)); empty disables; the legacy contract subscribes nothing |
+| `initialpose_topic` | `/initialpose` | initial poses to report as initializing (see [Initial pose](#initial-pose)); empty disables |
 | `initialpose_settle_sec` | `2.0` | how long the followed odometry must flow without a break after an initial pose; must be finite and > 0, or startup fails |
 | `matching_odom_topic` | `""` | scan-matching odometry to monitor in SLAM mode; empty means matching health is always OK |
 | `wheelspeed_enable` / `wheelspeed_scale_factor` / `wheelspeed_use_y` | `true` / `1000.0` / `false` | leg odometry → wheelspeed aiding (m/s → mm/s) |
@@ -89,39 +88,36 @@ All under the `m20.` prefix. Defaults are the M20's field-validated values.
 
 ## Status semantics
 
-`StatusMonitor` reaches one verdict and one state per field; `m20.status_contract` decides the
-numbers they go out as (`status_contract.hpp`). Which numbering the robot's navigation stack reads
-follows from its OEM firmware:
+`StatusMonitor` reaches one verdict and one state per field; `status_contract.hpp` numbers them as
+the OEM's "山猫M20 定位输出话题与格式说明 v1.2.0" does, which OEM firmware 120 (localization
+baseline 3.5.13+) reads. Downstream treats `total_status` 0 and 2 as usable. OEM firmware before 120
+reads a different numbering, which this driver no longer sends; a robot on such firmware stays on a
+2.x release.
 
-- `legacy` (default): what OEM firmware before 120 reads. Its sub-field values are those the
-  field-validated Python bridge used before the OEM had published any specification.
-- `v1.2.0`: the OEM's "山猫M20 定位输出话题与格式说明 v1.2.0", read by firmware 120 (localization
-  baseline 3.5.13+). Downstream treats `total_status` 0 and 2 as usable.
+| Monitor state | Sent |
+|---|---|
+| `total_status`: no pose from the followed odometry yet | 7 initializing |
+| `total_status`: an initial pose is settling ([Initial pose](#initial-pose)) | 7 initializing |
+| `total_status`: normal | 0 |
+| `total_status`: low quality — a monitored input missing or a failure held | 2 minor fault |
+| `total_status`: lost — the followed odometry stopped or a non-finite value arrived | 3 lost |
+| `input_val.{lidar,imu,leg_odom,rtk}`: arriving within its timeout | 1 normal |
+| `input_val.{lidar,imu,leg_odom,rtk}`: silent past its timeout, or never received | 2 no data |
+| `input_val.{tag,reflective_strip}`: neither is fitted on this robot | 0 not used |
+| `loss_val.odom_error`: the followed odometry stopped | 2 hard loss |
+| `loss_val.{leg_odom_error,matching_error,pub_error}` | 1 minor |
+| `exec_val.{overtime,numeric_error,timestamp_error}` | 1 |
 
-| Monitor state | `legacy` | `v1.2.0` |
-|---|---|---|
-| `total_status`: no pose from the followed odometry yet | 0 uninitialized | 7 initializing |
-| `total_status`: an initial pose is settling ([Initial pose](#initial-pose)) | — (not subscribed) | 7 initializing |
-| `total_status`: normal | 1 | 0 |
-| `total_status`: low quality — a monitored input missing or a failure held | 2 | 2 minor fault |
-| `total_status`: lost — the followed odometry stopped or a non-finite value arrived | 3 | 3 lost |
-| `input_val.{lidar,imu,leg_odom,rtk}`: arriving within its timeout | 1 | 1 normal |
-| `input_val.{lidar,imu,leg_odom,rtk}`: silent past its timeout, or never received | 0 | 2 no data |
-| `input_val.{tag,reflective_strip}`: neither is fitted on this robot | 0 | 0 not used |
-| `loss_val.odom_error`: the followed odometry stopped | 1 | 2 hard loss |
-| `loss_val.{leg_odom_error,matching_error,pub_error}` | 1 | 1 minor |
-| `exec_val.{overtime,numeric_error,timestamp_error}` | 1 | 1 |
-
-A loss or execution field that is not raised is 0 in both. The lidar, the IMU, the leg odometry and
-the RTK input are monitored in every configuration; a not-used input never degrades the verdict.
-`v1.2.0` defines a few values this driver never sends: `total_status` 1 (undefined), 4 and 6
+A loss or execution field that is not raised is 0. The lidar, the IMU, the leg odometry and the RTK
+input are monitored in every configuration; a not-used input never degrades the verdict. The
+specification defines a few values this driver never sends: `total_status` 1 (undefined), 4 and 6
 (reserved) and 5 (lost, needs an initial pose — the driver cannot tell whether the pipeline would
 recover without one), and input 3 (abnormal — nothing here tells an abnormal input from a missing
 one).
 
 ### Initial pose
 
-Under `v1.2.0` the module subscribes `m20.initialpose_topic`
+Unless `m20.initialpose_topic` is empty, the module subscribes it
 (`geometry_msgs/PoseWithCovarianceStamped`, reliable, volatile, depth 10). It does not interpret the
 pose; the localization pipeline applies it.
 From each receipt `total_status` is 7 until the followed odometry has been flowing — as
@@ -133,8 +129,7 @@ the same in both odometry source modes.
 
 Settling is judged from the odometry because that is all the driver can see: LIO-SLAM's pose graph
 acknowledges only a pose it has installed or queued, and rejects an operator's pose without an
-acknowledgement while it is aligned to GNSS. The legacy contract has no initializing state and
-subscribes nothing.
+acknowledgement while it is aligned to GNSS.
 
 ### Odometry and the RTK input
 
@@ -147,16 +142,16 @@ the position, the orientation and both velocities. A pipeline that has stopped t
 `loss_val.odom_error` and `total_status`, not in this flag. Both the flag and `odom_error` use
 `timeouts.rtk_sec`.
 
-What `subscribe` mode reports, as `legacy` / `v1.2.0`, with the lidar, the IMU and the leg odometry
-arriving, scan-matching monitoring off (`matching_odom_topic` empty) or its input arriving, no
-failure being held, no initial pose settling, and the timeouts expired. A monitored scan-matching
-input that has gone silent turns normal into low quality (`legacy` 1 → 2, `v1.2.0` 0 → 2); under
-`v1.2.0` an initial pose that is still settling makes `total_status` 7 in every row:
+What `subscribe` mode reports with the lidar, the IMU and the leg odometry arriving, scan-matching
+monitoring off (`matching_odom_topic` empty) or its input arriving, no failure being held, no
+initial pose settling, and the timeouts expired. A monitored scan-matching input that has gone
+silent turns normal into a minor fault (0 → 2); an initial pose that is still settling makes
+`total_status` 7 in every row:
 
 | Situation | `total_status` | `loss_val.odom_error` | `input_val.rtk` |
 |---|---|---|---|
-| the pipeline's `/ODOM` and the sensor's ENU output both arriving | 1 / 0 | 0 / 0 | 1 / 1 |
-| the pipeline stopped, the sensor still has a valid ENU pose | 3 / 3 | 1 / 2 | 1 / 1 |
-| the pipeline publishing, the sensor without a valid ENU pose or disconnected | 1 / 0 | 0 / 0 | 1 / 1 |
-| both stopped after the pipeline had published | 3 / 3 | 1 / 2 | 0 / 2 |
-| nothing from the pipeline yet, the sensor has a valid ENU pose | 0 / 7 | 1 / 2 | 1 / 1 |
+| the pipeline's `/ODOM` and the sensor's ENU output both arriving | 0 | 0 | 1 |
+| the pipeline stopped, the sensor still has a valid ENU pose | 3 | 2 | 1 |
+| the pipeline publishing, the sensor without a valid ENU pose or disconnected | 0 | 0 | 1 |
+| both stopped after the pipeline had published | 3 | 2 | 2 |
+| nothing from the pipeline yet, the sensor has a valid ENU pose | 7 | 2 | 1 |
