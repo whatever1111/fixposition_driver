@@ -83,6 +83,12 @@ struct M20Params {
     double location_status_rate_hz = 2.0;
     //! The numbering the status goes out in (status_contract.hpp), which the robot's OEM firmware decides
     StatusContract status_contract = StatusContract::LEGACY;
+    /**
+     * Initial poses to report as initializing (StatusMonitor::MarkInitialPose()), under the v1.2.0
+     * contract only; the legacy contract has no such state and subscribes nothing. Empty disables.
+     * The settle time is timeouts.initialpose_settle.
+     */
+    std::string initialpose_topic = "/initialpose";
     //! Scan-matching odometry to monitor in SLAM mode; empty disables the matching health check
     std::string matching_odom_topic = "";
 
