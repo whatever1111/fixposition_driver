@@ -419,3 +419,162 @@ TEST(StatusContractTest, V120ReportsWhatTheMonitorSees) {
     EXPECT_EQ(V120(matching, 2.05).matching_error, 1);
     EXPECT_EQ(V120(matching, 2.05).total_status, 2);
 }
+
+TEST(StatusContractTest, InitializingIsSevenInV120Only) {
+    const std::vector<StatusVerdict> verdicts = {StatusVerdict::UNINITIALIZED, StatusVerdict::LOST,
+                                                 StatusVerdict::LOW_QUALITY, StatusVerdict::NORMAL};
+    for (const StatusVerdict verdict : verdicts) {
+        StatusHealth health = HealthyHealth();
+        health.verdict = verdict;
+        health.lidar = InputState::MISSING;
+        health.pub_error = true;
+        StatusHealth initializing = health;
+        initializing.initializing = true;
+
+        // v1.2.0: 7 whatever the verdict, every other field as it was
+        const StatusSnapshot v120 = EncodeV120Status(initializing);
+        EXPECT_EQ(v120.total_status, 7) << static_cast<int>(verdict);
+        EXPECT_EQ(FieldsExcept(v120, &StatusSnapshot::total_status),
+                  FieldsExcept(EncodeV120Status(health), &StatusSnapshot::total_status))
+            << static_cast<int>(verdict);
+
+        // Legacy has no such state: not a single field changes
+        EXPECT_EQ(FieldsExcept(EncodeLegacyStatus(initializing), nullptr),
+                  FieldsExcept(EncodeLegacyStatus(health), nullptr))
+            << static_cast<int>(verdict);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+namespace {
+
+//! Time between samples [s]. A power of two, so every time below is exact and the settle and timeout
+//! boundaries can be hit on the dot.
+constexpr double STEP = 0.125;
+
+//! The v1.2.0 total_status as (time, value): at the first time looked at, and wherever it changed
+using Changes = std::vector<std::pair<double, int>>;
+
+/**
+ * Every STEP over [from, to] the lidar, the IMU, the leg odometry and the RTK input arrive; so does the
+ * odometry if @p odometry, accepted the way the module accepts it (alive, and initialized from then
+ * on). Returns what the v1.2.0 contract reports after each step.
+ */
+Changes Drive(StatusMonitor& monitor, const double from, const double to, const bool odometry) {
+    Changes changes;
+    for (double now = from; now <= to; now += STEP) {
+        monitor.MarkRx(StatusInput::LIDAR, now);
+        monitor.MarkRx(StatusInput::IMU, now);
+        monitor.MarkRx(StatusInput::LEG_ODOM, now);
+        monitor.MarkRx(StatusInput::RTK, now);
+        if (odometry) {
+            monitor.MarkOdomAlive(now);
+            monitor.SetInitialized();
+        }
+        const int total = V120(monitor, now).total_status;
+        if (changes.empty() || (changes.back().second != total)) {
+            changes.emplace_back(now, total);
+        }
+    }
+    return changes;
+}
+
+}  // namespace
+
+TEST(InitialPoseHoldTest, InitializingUntilTheOdometryHasFlowedForTheSettleTime) {
+    StatusMonitor monitor{StatusTimeouts(), false};
+    EXPECT_EQ(Drive(monitor, 1.0, 10.0, true), (Changes{{1.0, 0}}));
+
+    // From the moment the pose arrives ...
+    monitor.MarkInitialPose(10.0625);
+    EXPECT_EQ(V120(monitor, 10.0625).total_status, 7);
+    // ... until 2 s of odometry, counted from the first sample after it
+    EXPECT_EQ(Drive(monitor, 10.125, 15.0, true), (Changes{{10.125, 7}, {12.125, 0}}));
+}
+
+TEST(InitialPoseHoldTest, OnlyTotalStatusIsHeld) {
+    StatusMonitor monitor{StatusTimeouts(), false};
+    Drive(monitor, 1.0, 10.0, true);
+    monitor.MarkInitialPose(10.0625);
+    Drive(monitor, 10.125, 11.0, true);
+
+    // Every input is arriving and nothing has failed: the fields say so, only the verdict waits
+    const StatusSnapshot held = V120(monitor, 11.0);
+    EXPECT_EQ(TotalAndExecOf(held), TotalAndExec(7, 0, 0, 0));
+    EXPECT_EQ(LossesOf(held), Losses(0, 0, 0, 0));
+    EXPECT_EQ(InputsOf(held), Inputs(1, 1, 1, 1, 0, 0));
+
+    // The legacy contract has no initializing state
+    EXPECT_EQ(Legacy(monitor, 11.0).total_status, TOTAL_NORMAL);
+}
+
+TEST(InitialPoseHoldTest, CountStartsWithTheFirstSampleAfterThePose) {
+    StatusMonitor monitor{StatusTimeouts(), false};
+    Drive(monitor, 1.0, 5.0, true);
+    monitor.MarkInitialPose(5.0625);
+
+    // No odometry for 3 s: initializing throughout, also once the odometry counts as stopped
+    EXPECT_EQ(Drive(monitor, 5.125, 8.0, false), (Changes{{5.125, 7}}));
+    // It comes back: 2 s from its first sample
+    EXPECT_EQ(Drive(monitor, 8.125, 12.0, true), (Changes{{8.125, 7}, {10.125, 0}}));
+}
+
+TEST(InitialPoseHoldTest, PoseBeforeTheFirstOdometry) {
+    StatusMonitor monitor{StatusTimeouts(), false};
+    monitor.MarkInitialPose(0.5);
+    EXPECT_EQ(Drive(monitor, 0.5, 1.0, false), (Changes{{0.5, 7}}));
+    // Without the pose the first sample would have made it normal at once
+    EXPECT_EQ(Drive(monitor, 1.125, 5.0, true), (Changes{{1.125, 7}, {3.125, 0}}));
+}
+
+TEST(InitialPoseHoldTest, BreakInTheOdometryRestartsTheCount) {
+    StatusMonitor monitor{StatusTimeouts(), false};
+    Drive(monitor, 1.0, 20.0, true);
+    monitor.MarkInitialPose(20.0625);
+    EXPECT_EQ(Drive(monitor, 20.125, 20.5, true), (Changes{{20.125, 7}}));
+    // Last sample at 20.5: the odometry counts as flowing up to 21.5 (rtk timeout 1 s), then it has stopped
+    EXPECT_EQ(Drive(monitor, 20.625, 22.0, false), (Changes{{20.625, 7}}));
+    // Had the count gone on, it would have been 0 from 22.125
+    EXPECT_EQ(Drive(monitor, 22.125, 26.0, true), (Changes{{22.125, 7}, {24.125, 0}}));
+}
+
+TEST(InitialPoseHoldTest, ShortStopWithinTheOdometryTimeoutIsNoBreak) {
+    StatusMonitor monitor{StatusTimeouts(), false};
+    Drive(monitor, 1.0, 30.0, true);
+    monitor.MarkInitialPose(30.0625);
+    EXPECT_EQ(Drive(monitor, 30.125, 30.5, true), (Changes{{30.125, 7}}));
+    // Silent from 30.625 to 31.375; the next sample at 31.5 is exactly the 1 s timeout after the last
+    EXPECT_EQ(Drive(monitor, 30.625, 31.375, false), (Changes{{30.625, 7}}));
+    EXPECT_EQ(Drive(monitor, 31.5, 34.0, true), (Changes{{31.5, 7}, {32.125, 0}}));
+}
+
+TEST(InitialPoseHoldTest, NewPoseRestartsTheCount) {
+    StatusMonitor monitor{StatusTimeouts(), false};
+    Drive(monitor, 1.0, 40.0, true);
+    monitor.MarkInitialPose(40.0625);
+    EXPECT_EQ(Drive(monitor, 40.125, 41.5, true), (Changes{{40.125, 7}}));
+    // Had the first pose's count gone on, it would have been 0 from 42.125
+    monitor.MarkInitialPose(41.5625);
+    EXPECT_EQ(Drive(monitor, 41.625, 45.0, true), (Changes{{41.625, 7}, {43.625, 0}}));
+}
+
+TEST(InitialPoseHoldTest, AfterSettlingAStopIsAnOrdinaryLoss) {
+    StatusMonitor monitor{StatusTimeouts(), false};
+    Drive(monitor, 1.0, 50.0, true);
+    monitor.MarkInitialPose(50.0625);
+    EXPECT_EQ(Drive(monitor, 50.125, 53.0, true), (Changes{{50.125, 7}, {52.125, 0}}));
+    // The odometry stops: lost (3) once the timeout has passed, not initializing again
+    EXPECT_EQ(Drive(monitor, 53.125, 56.0, false), (Changes{{53.125, 0}, {54.125, 3}}));
+    // And it is normal as soon as it flows again
+    EXPECT_EQ(Drive(monitor, 56.125, 57.0, true), (Changes{{56.125, 0}}));
+}
+
+TEST(InitialPoseHoldTest, HonoursTheSettleTime) {
+    StatusTimeouts timeouts;
+    timeouts.initialpose_settle = 0.5;
+    StatusMonitor monitor{timeouts, false};
+    Drive(monitor, 1.0, 5.0, true);
+    monitor.MarkInitialPose(5.0625);
+    EXPECT_EQ(Drive(monitor, 5.125, 7.0, true), (Changes{{5.125, 7}, {5.625, 0}}));
+}

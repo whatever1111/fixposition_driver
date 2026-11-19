@@ -12,7 +12,9 @@
  *                     stamp, so its header stamp is that of a real /ODOM message. Runs in a worker
  *                     thread (latest scan wins) so a slow scan never stalls the odometry.
  *   /LOCATION_STATUS  drdds/LocationStatus at 2 Hz, sharing the same stamp, reporting input liveness
- *                     and execution health in the numbering m20.status_contract selects.
+ *                     and execution health in the numbering m20.status_contract selects. Under the
+ *                     v1.2.0 contract an initial pose (m20.initialpose_topic) is reported as
+ *                     initializing until the odometry has settled again.
  *
  * The module also feeds the robot's leg odometry (drdds/MotionInfo) back to the positioning sensor
  * as wheelspeed aiding, which is what the separate Python bridge used to do.
@@ -42,6 +44,7 @@
 #include <Eigen/Geometry>
 #include <drdds/msg/location_status.hpp>
 #include <drdds/msg/motion_info.hpp>
+#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
@@ -166,6 +169,7 @@ class M20Localization {
     void ImuCb(const sensor_msgs::msg::Imu& msg);
     void MotionInfoCb(const drdds::msg::MotionInfo& msg);
     void OdomSubCb(const nav_msgs::msg::Odometry& msg);
+    void InitialPoseCb();
     void StatusTimerCb();
     void ReinitCheckCb();
 
@@ -197,6 +201,7 @@ class M20Localization {
     rclcpp::Subscription<drdds::msg::MotionInfo>::SharedPtr motion_info_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr matching_sub_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initialpose_sub_;
     rclcpp::TimerBase::SharedPtr status_timer_;
     rclcpp::TimerBase::SharedPtr reinit_timer_;
 

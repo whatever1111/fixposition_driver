@@ -14,6 +14,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(ament_cmake REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(drdds REQUIRED)
@@ -42,6 +43,7 @@ target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC
 
 ament_target_dependencies(${PROJECT_NAME}
     rclcpp
+    geometry_msgs
     nav_msgs
     sensor_msgs
     drdds
@@ -57,7 +59,7 @@ install(TARGETS ${PROJECT_NAME}
 install(DIRECTORY include/ DESTINATION include)
 
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
-ament_export_dependencies(rclcpp nav_msgs sensor_msgs drdds Eigen3)
+ament_export_dependencies(rclcpp geometry_msgs nav_msgs sensor_msgs drdds Eigen3)
 
 # TESTS ================================================================================================================
 if(BUILD_TESTING)
