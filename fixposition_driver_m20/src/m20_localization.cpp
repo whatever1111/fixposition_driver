@@ -174,6 +174,14 @@ bool LoadM20ParamsFromRos2(std::shared_ptr<rclcpp::Node>& nh, M20Params& params)
         RCLCPP_ERROR(logger, "m20.location_status_rate_hz must be > 0, got %.3f", params.location_status_rate_hz);
         ok = false;
     }
+    std::string status_contract = StatusContractName(params.status_contract);
+    load_string("m20.status_contract", status_contract);
+    if (!ParseStatusContract(status_contract, params.status_contract)) {
+        RCLCPP_ERROR(logger, "m20.status_contract must be \"%s\" or \"%s\", got \"%s\"",
+                     StatusContractName(StatusContract::LEGACY), StatusContractName(StatusContract::V1_2_0),
+                     status_contract.c_str());
+        ok = false;
+    }
     load_string("m20.matching_odom_topic", params.matching_odom_topic);
 
     load_string("m20.motion_info_topic", params.motion_info_topic);
@@ -273,8 +281,8 @@ bool M20Localization::Start() {
     RCLCPP_INFO(logger_, "M20: deskewing %s -> %s (frame \"%s\", gyro %s, deskew %s, reference = newest %s stamp)",
                 params_.lidar_topic.c_str(), params_.loc_body_points_topic.c_str(), params_.loc_body_frame_id.c_str(),
                 params_.imu_topic.c_str(), params_.deskew_enable ? "on" : "off", params_.odom_topic.c_str());
-    RCLCPP_INFO(logger_, "M20: publishing %s at %.2f Hz", params_.location_status_topic.c_str(),
-                params_.location_status_rate_hz);
+    RCLCPP_INFO(logger_, "M20: publishing %s at %.2f Hz, status contract %s", params_.location_status_topic.c_str(),
+                params_.location_status_rate_hz, StatusContractName(params_.status_contract));
     RCLCPP_INFO(logger_, "M20: handler compatibility aliases: odom=%s, cloud=%s (reliable)",
                 params_.handler_odom_topic.empty() ? "disabled" : params_.handler_odom_topic.c_str(),
                 params_.handler_cloud_topic.empty() ? "disabled" : params_.handler_cloud_topic.c_str());
@@ -702,7 +710,7 @@ void M20Localization::PublishStatus(const Stamp& stamp) {
     if (!status_pub_) {
         return;
     }
-    const StatusSnapshot snapshot = status_.Compute(SteadyNow());
+    const StatusSnapshot snapshot = EncodeStatus(params_.status_contract, status_.Compute(SteadyNow()));
 
     drdds::msg::LocationStatus msg;
     // Note the OEM's naming: LocationStatus carries "meta" where MotionInfo carries "header"

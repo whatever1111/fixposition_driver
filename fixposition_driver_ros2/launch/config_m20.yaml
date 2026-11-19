@@ -97,6 +97,10 @@
             # Health reporting
             location_status_topic: "/LOCATION_STATUS"
             location_status_rate_hz: 2.0     # OEM contract
+            # The numbering the robot's OEM firmware expects (see M20.md): "legacy" (0 uninitialized,
+            # 1 normal, 2 low quality, 3 lost) or "v1.2.0" (0 normal, 2 minor fault, 3 lost,
+            # 7 initializing). Anything else fails startup.
+            status_contract: "legacy"
             matching_odom_topic: ""          # set in SLAM mode to monitor scan-matching health
             timeouts:
                 lidar_sec: 0.5

@@ -4,13 +4,9 @@
  *
  * Inputs are tracked by liveness (last time something arrived) and failures by a sticky hold, so a
  * single hiccup stays visible for a few seconds instead of flickering past the 2 Hz status rate.
- * The state machine is a straight port of the Python bridge that has been running on the robot, and
- * its verdicts follow the OEM's total_status contract:
- *
- *   0 uninitialized  needs a localization init / map
- *   1 normal
- *   2 low quality    degraded inputs or execution errors, keep watching
- *   3 lost           stop navigating and re-initialize
+ * The state machine is a straight port of the Python bridge that has been running on the robot. Its
+ * result is a verdict and a state per field, which no wire contract has numbered yet: the contract
+ * the robot reads turns them into values (status_contract.hpp).
  *
  * All times are seconds from a steady clock; the caller passes "now" in, which keeps the class pure
  * and testable.
@@ -23,27 +19,10 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
-#include <cstdint>
 
 namespace fixposition {
 namespace m20 {
 /* ****************************************************************************************************************** */
-
-//! drdds LocationStatusValue.total_status, per the OEM specification
-constexpr uint8_t TOTAL_UNINITIALIZED = 0;
-constexpr uint8_t TOTAL_NORMAL = 1;
-constexpr uint8_t TOTAL_LOW_QUALITY = 2;
-constexpr uint8_t TOTAL_LOST = 3;
-
-/**
- * Sub-field flag values. The OEM has not published the semantics of the exec_val / loss_val /
- * input_val flags; these are the values the field-validated Python bridge used. Change them here if
- * and when the specification arrives.
- */
-constexpr uint8_t ERR_OK = 0;
-constexpr uint8_t ERR_ERROR = 1;
-constexpr uint8_t INPUT_OK = 1;
-constexpr uint8_t INPUT_MISSING = 0;
 
 /**
  * @brief Tracked inputs
@@ -88,26 +67,48 @@ struct StatusTimeouts {
 };
 
 /**
- * @brief One evaluation of the health state, mapping 1:1 onto drdds/LocationStatusValue
+ * @brief The overall verdict. The first that applies wins, in this order.
  */
-struct StatusSnapshot {
-    uint8_t total_status = TOTAL_UNINITIALIZED;
+enum class StatusVerdict {
+    UNINITIALIZED,  //!< no pose from the selected odometry source yet
+    LOST,           //!< the odometry stopped, or a non-finite value arrived: stop navigating
+    LOW_QUALITY,    //!< an input is missing or a failure is being held: keep watching
+    NORMAL,
+};
+
+/**
+ * @brief What an input_val field says about its input
+ *
+ * The lidar, the IMU, the leg odometry and the RTK input are monitored in every configuration. The
+ * tag and the reflective strip are not fitted on the M20, and nothing consumes them.
+ */
+enum class InputState {
+    NOT_USED,  //!< this configuration does not consume the input at all; never degrades the verdict
+    FRESH,     //!< received within its timeout
+    MISSING,   //!< monitored, but silent past its timeout or never received
+};
+
+/**
+ * @brief One evaluation of the health state, field by field as in drdds/LocationStatusValue
+ */
+struct StatusHealth {
+    StatusVerdict verdict = StatusVerdict::UNINITIALIZED;
     // exec_val
-    uint8_t overtime = ERR_OK;
-    uint8_t numeric_error = ERR_OK;
-    uint8_t timestamp_error = ERR_OK;
+    bool overtime = false;         //!< a scan overran its budget within the error hold
+    bool numeric_error = false;    //!< a non-finite value arrived within the error hold
+    bool timestamp_error = false;  //!< the clocks disagreed or a stamp jumped within the error hold
     // loss_val
-    uint8_t odom_error = ERR_OK;
-    uint8_t leg_odom_error = ERR_OK;
-    uint8_t matching_error = ERR_OK;
-    uint8_t pub_error = ERR_OK;
+    bool odom_stalled = true;     //!< the selected odometry is not flowing
+    bool leg_odom_error = true;   //!< the leg odometry is not arriving
+    bool matching_error = false;  //!< monitored scan matching is not arriving
+    bool pub_error = false;       //!< a publication failed within the error hold
     // input_val
-    uint8_t lidar = INPUT_MISSING;
-    uint8_t imu = INPUT_MISSING;
-    uint8_t leg_odom = INPUT_MISSING;
-    uint8_t rtk = INPUT_MISSING;
-    uint8_t tag = INPUT_MISSING;
-    uint8_t reflective_strip = INPUT_MISSING;
+    InputState lidar = InputState::MISSING;
+    InputState imu = InputState::MISSING;
+    InputState leg_odom = InputState::MISSING;
+    InputState rtk = InputState::MISSING;
+    InputState tag = InputState::NOT_USED;
+    InputState reflective_strip = InputState::NOT_USED;
 };
 
 /**
@@ -160,11 +161,13 @@ class StatusMonitor {
     /**
      * @brief Evaluate the current health
      */
-    StatusSnapshot Compute(double now) const;
+    StatusHealth Compute(double now) const;
 
    private:
     bool ErrorActive(StatusError error, double now) const;
     double Timeout(StatusInput input) const;
+    //! The state of an input this configuration monitors
+    InputState Monitored(StatusInput input, double now) const;
 
     StatusTimeouts timeouts_;
     bool matching_enabled_;
