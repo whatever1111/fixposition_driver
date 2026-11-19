@@ -15,7 +15,6 @@
 #include <vector>
 
 /* PACKAGE */
-#include "fixposition_driver_m20/status_contract.hpp"
 #include "fixposition_driver_m20/status_monitor.hpp"
 
 namespace fixposition {
@@ -81,11 +80,8 @@ struct M20Params {
     std::string location_status_topic = "/LOCATION_STATUS";
     //! OEM contract: 2 Hz
     double location_status_rate_hz = 2.0;
-    //! The numbering the status goes out in (status_contract.hpp), which the robot's OEM firmware decides
-    StatusContract status_contract = StatusContract::LEGACY;
     /**
-     * Initial poses to report as initializing (StatusMonitor::MarkInitialPose()), under the v1.2.0
-     * contract only; the legacy contract has no such state and subscribes nothing. Empty disables.
+     * Initial poses to report as initializing (StatusMonitor::MarkInitialPose()). Empty disables.
      * The settle time is timeouts.initialpose_settle.
      */
     std::string initialpose_topic = "/initialpose";
