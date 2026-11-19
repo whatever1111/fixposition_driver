@@ -38,6 +38,9 @@ constexpr uint64_t CLOUD_LOG_PERIOD = 600;
 //! Log one line every this many odometry messages
 constexpr uint64_t ODOM_LOG_PERIOD = 200;
 
+//! Initial pose subscription depth; reliable and volatile, like the localization pipeline's own
+constexpr size_t INITIALPOSE_DEPTH = 10;
+
 rclcpp::QoS MakeQos(const int depth, const bool reliable) {
     rclcpp::QoS qos{rclcpp::KeepLast(static_cast<size_t>(std::max(1, depth)))};
     if (reliable) {
@@ -182,6 +185,13 @@ bool LoadM20ParamsFromRos2(std::shared_ptr<rclcpp::Node>& nh, M20Params& params)
                      status_contract.c_str());
         ok = false;
     }
+    load_string("m20.initialpose_topic", params.initialpose_topic);
+    load_double("m20.initialpose_settle_sec", params.timeouts.initialpose_settle);
+    if (!std::isfinite(params.timeouts.initialpose_settle) || !(params.timeouts.initialpose_settle > 0.0)) {
+        RCLCPP_ERROR(logger, "m20.initialpose_settle_sec must be finite and > 0, got %.3f",
+                     params.timeouts.initialpose_settle);
+        ok = false;
+    }
     load_string("m20.matching_odom_topic", params.matching_odom_topic);
 
     load_string("m20.motion_info_topic", params.motion_info_topic);
@@ -277,12 +287,24 @@ bool M20Localization::Start() {
             params_.matching_odom_topic, input_qos,
             [this](nav_msgs::msg::Odometry::ConstSharedPtr) { status_.MarkRx(StatusInput::MATCHING, SteadyNow()); });
     }
+    // Only the v1.2.0 contract has an initializing state to report an initial pose with
+    if ((params_.status_contract == StatusContract::V1_2_0) && !params_.initialpose_topic.empty()) {
+        const rclcpp::QoS initialpose_qos =
+            rclcpp::QoS(rclcpp::KeepLast(INITIALPOSE_DEPTH)).reliable().durability_volatile();
+        initialpose_sub_ = nh_->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+            params_.initialpose_topic, initialpose_qos,
+            [this](geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr) { InitialPoseCb(); });
+    }
 
     RCLCPP_INFO(logger_, "M20: deskewing %s -> %s (frame \"%s\", gyro %s, deskew %s, reference = newest %s stamp)",
                 params_.lidar_topic.c_str(), params_.loc_body_points_topic.c_str(), params_.loc_body_frame_id.c_str(),
                 params_.imu_topic.c_str(), params_.deskew_enable ? "on" : "off", params_.odom_topic.c_str());
     RCLCPP_INFO(logger_, "M20: publishing %s at %.2f Hz, status contract %s", params_.location_status_topic.c_str(),
                 params_.location_status_rate_hz, StatusContractName(params_.status_contract));
+    if (initialpose_sub_) {
+        RCLCPP_INFO(logger_, "M20: an initial pose on %s is reported as initializing until %s has flowed for %.1f s",
+                    params_.initialpose_topic.c_str(), params_.odom_topic.c_str(), params_.timeouts.initialpose_settle);
+    }
     RCLCPP_INFO(logger_, "M20: handler compatibility aliases: odom=%s, cloud=%s (reliable)",
                 params_.handler_odom_topic.empty() ? "disabled" : params_.handler_odom_topic.c_str(),
                 params_.handler_cloud_topic.empty() ? "disabled" : params_.handler_cloud_topic.c_str());
@@ -324,6 +346,7 @@ void M20Localization::Stop() {
     motion_info_sub_.reset();
     odom_sub_.reset();
     matching_sub_.reset();
+    initialpose_sub_.reset();
     odom_pub_.reset();
     handler_odom_pub_.reset();
     body_points_pub_.reset();
@@ -417,6 +440,13 @@ void M20Localization::OnOdometry(const OdomSample& sample, const OdomFeed feed) 
     } else if ((count % ODOM_LOG_PERIOD) == 0) {
         RCLCPP_INFO(logger_, "M20: %" PRIu64 " odometry messages %s", count, verb);
     }
+}
+
+void M20Localization::InitialPoseCb() {
+    // The pose is the localization pipeline's to apply; all the status reports is that one arrived
+    status_.MarkInitialPose(SteadyNow());
+    RCLCPP_INFO(logger_, "M20: initial pose received — reporting initializing until %s has flowed for %.1f s",
+                params_.odom_topic.c_str(), params_.timeouts.initialpose_settle);
 }
 
 void M20Localization::OdomSubCb(const nav_msgs::msg::Odometry& msg) {
