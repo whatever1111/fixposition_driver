@@ -5,8 +5,7 @@
  * Inputs are tracked by liveness (last time something arrived) and failures by a sticky hold, so a
  * single hiccup stays visible for a few seconds instead of flickering past the 2 Hz status rate.
  * The state machine is a straight port of the Python bridge that has been running on the robot. Its
- * result is a verdict and a state per field, which no wire contract has numbered yet: the contract
- * the robot reads turns them into values (status_contract.hpp).
+ * result is a verdict and a state per field, not yet wire values: status_contract.hpp numbers them.
  *
  * All times are seconds from a steady clock; the caller passes "now" in, which keeps the class pure
  * and testable.
