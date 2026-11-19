@@ -2,8 +2,8 @@
  * @file
  * @brief Tests for the odometry source policy and the status each mode ends up reporting
  *
- * Built from the pure sources alone (the policy header and status_monitor.cpp): no node, no
- * publishers. The Follower below repeats what the module does with each action, so these are tests of
+ * Built from the pure sources alone (the policy header, status_monitor.cpp and status_contract.cpp):
+ * no node, no publishers. The Follower below repeats what the module does with each action, so these are tests of
  * the decision and of the status arithmetic it drives — not of the ROS wiring, the published messages
  * or the stamp retiming.
  */
@@ -21,26 +21,29 @@
 
 /* PACKAGE */
 #include "fixposition_driver_m20/odometry_source_policy.hpp"
+#include "fixposition_driver_m20/status_contract.hpp"
 #include "fixposition_driver_m20/status_monitor.hpp"
 
 namespace {
 
 using fixposition::m20::DecideOdomInput;
-using fixposition::m20::ERR_ERROR;
-using fixposition::m20::ERR_OK;
-using fixposition::m20::INPUT_MISSING;
-using fixposition::m20::INPUT_OK;
+using fixposition::m20::EncodeLegacyStatus;
 using fixposition::m20::OdomFeed;
 using fixposition::m20::OdomInputAction;
 using fixposition::m20::OdomSource;
 using fixposition::m20::StatusError;
 using fixposition::m20::StatusInput;
 using fixposition::m20::StatusMonitor;
+using fixposition::m20::StatusSnapshot;
 using fixposition::m20::StatusTimeouts;
-using fixposition::m20::TOTAL_LOST;
-using fixposition::m20::TOTAL_LOW_QUALITY;
-using fixposition::m20::TOTAL_NORMAL;
-using fixposition::m20::TOTAL_UNINITIALIZED;
+using fixposition::m20::legacy::ERR_ERROR;
+using fixposition::m20::legacy::ERR_OK;
+using fixposition::m20::legacy::INPUT_MISSING;
+using fixposition::m20::legacy::INPUT_OK;
+using fixposition::m20::legacy::TOTAL_LOST;
+using fixposition::m20::legacy::TOTAL_LOW_QUALITY;
+using fixposition::m20::legacy::TOTAL_NORMAL;
+using fixposition::m20::legacy::TOTAL_UNINITIALIZED;
 
 //! Time between samples [s]. A power of two, so every time below is exact and the timeout boundaries
 //! can be hit on the dot.
@@ -132,9 +135,12 @@ class Follower {
         monitor.MarkRx(StatusInput::LIDAR, now);
         monitor.MarkRx(StatusInput::IMU, now);
         monitor.MarkRx(StatusInput::LEG_ODOM, now);
-        const auto snapshot = monitor.Compute(now);
+        const auto snapshot = Legacy(now);
         return Triple{snapshot.total_status, snapshot.odom_error, snapshot.rtk};
     }
+
+    //! What the module would report at @p now, in the legacy contract, marking nothing
+    StatusSnapshot Legacy(const double now) const { return EncodeLegacyStatus(monitor.Compute(now)); }
 
     //! True while nothing has taken the selected path
     bool Untouched() const { return alias_stamps.empty() && !have_reference && (count == 0) && !monitor.Initialized(); }
@@ -204,13 +210,13 @@ TEST(OdometrySourcePolicyTest, HealthOnlyRequiresValidFinite) {
     EXPECT_EQ(follower.Feed(OdomFeed::SENSOR_ENU, invalid_and_not_finite, 1.0), OdomInputAction::IGNORE);
     EXPECT_TRUE(follower.Untouched());
     EXPECT_FALSE(follower.monitor.EverReceived(StatusInput::RTK));
-    EXPECT_EQ(follower.monitor.Compute(1.0).numeric_error, ERR_OK);
+    EXPECT_EQ(follower.Legacy(1.0).numeric_error, ERR_OK);
     EXPECT_EQ(follower.StatusAt(1.0), UNINITIALIZED_NOTHING_ARRIVING);
 
     // With the pipeline healthy, the sensor's NaN does not cost the localization its status ...
     EXPECT_EQ(follower.Feed(OdomFeed::SUBSCRIBED_ODOM, PipelineSample(1.0), 1.0), OdomInputAction::SELECTED);
     EXPECT_EQ(follower.Feed(OdomFeed::SENSOR_ENU, not_finite, 1.0), OdomInputAction::IGNORE);
-    EXPECT_EQ(follower.monitor.Compute(1.0).numeric_error, ERR_OK);
+    EXPECT_EQ(follower.Legacy(1.0).numeric_error, ERR_OK);
     EXPECT_EQ(follower.StatusAt(1.0), NORMAL);
 
     // ... while the pipeline's own NaN does, and is not published or counted either
@@ -218,8 +224,8 @@ TEST(OdometrySourcePolicyTest, HealthOnlyRequiresValidFinite) {
     pipeline_not_finite.velocity = std::numeric_limits<double>::infinity();
     EXPECT_EQ(follower.Feed(OdomFeed::SUBSCRIBED_ODOM, pipeline_not_finite, 1.0 + STEP),
               OdomInputAction::SELECTED_NUMERIC_ERROR);
-    EXPECT_EQ(follower.monitor.Compute(1.0 + STEP).numeric_error, ERR_ERROR);
-    EXPECT_EQ(follower.monitor.Compute(1.0 + STEP).total_status, TOTAL_LOST);
+    EXPECT_EQ(follower.Legacy(1.0 + STEP).numeric_error, ERR_ERROR);
+    EXPECT_EQ(follower.Legacy(1.0 + STEP).total_status, TOTAL_LOST);
     EXPECT_EQ(follower.count, 1u);
     EXPECT_EQ(follower.alias_stamps.size(), 1u);
     EXPECT_EQ(follower.reference_stamp, PipelineSample(1.0).stamp);
@@ -380,14 +386,14 @@ TEST(OdometrySourcePolicyTest, SubscribeBothDownAndRecover) {
         EXPECT_EQ(follower.Feed(OdomFeed::SUBSCRIBED_ODOM, PipelineSample(now), now), OdomInputAction::SELECTED);
         follower.Feed(OdomFeed::SENSOR_ENU, SensorSample(now), now);
         EXPECT_EQ(follower.StatusAt(now), LOW_QUALITY) << now;
-        EXPECT_EQ(follower.monitor.Compute(now).timestamp_error, ERR_ERROR) << now;
+        EXPECT_EQ(follower.Legacy(now).timestamp_error, ERR_ERROR) << now;
     }
     // ... and then it is normal again
     for (double now = flagged + ERROR_HOLD + STEP; now <= flagged + ERROR_HOLD + 1.0; now += STEP) {
         EXPECT_EQ(follower.Feed(OdomFeed::SUBSCRIBED_ODOM, PipelineSample(now), now), OdomInputAction::SELECTED);
         follower.Feed(OdomFeed::SENSOR_ENU, SensorSample(now), now);
         EXPECT_EQ(follower.StatusAt(now), NORMAL) << now;
-        EXPECT_EQ(follower.monitor.Compute(now).timestamp_error, ERR_OK) << now;
+        EXPECT_EQ(follower.Legacy(now).timestamp_error, ERR_OK) << now;
     }
 }
 
@@ -415,8 +421,8 @@ TEST(OdometrySourcePolicyTest, FpaModeKeepsSelectedPath) {
     Sample not_finite = SensorSample(2.0 + STEP);
     not_finite.position = std::numeric_limits<double>::quiet_NaN();
     EXPECT_EQ(follower.Feed(OdomFeed::SENSOR_ENU, not_finite, 2.0 + STEP), OdomInputAction::SELECTED_NUMERIC_ERROR);
-    EXPECT_EQ(follower.monitor.Compute(2.0 + STEP).numeric_error, ERR_ERROR);
-    EXPECT_EQ(follower.monitor.Compute(2.0 + STEP).total_status, TOTAL_LOST);
+    EXPECT_EQ(follower.Legacy(2.0 + STEP).numeric_error, ERR_ERROR);
+    EXPECT_EQ(follower.Legacy(2.0 + STEP).total_status, TOTAL_LOST);
     EXPECT_EQ(follower.count, sensor_stamps.size());
 
     // The sensor going quiet is the odometry going quiet: an /ODOM from elsewhere cannot stand in for

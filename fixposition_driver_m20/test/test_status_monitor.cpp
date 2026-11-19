@@ -1,28 +1,87 @@
 /**
  * @file
- * @brief Tests for the localization health state machine
+ * @brief Tests for the localization health state machine and the wire contracts it is encoded in
+ *
+ * The contract tables below are written out in numbers, as the two specifications give them.
  */
+
+/* LIBC/STL */
+#include <cstdint>
+#include <tuple>
+#include <utility>
+#include <vector>
 
 /* EXTERNAL */
 #include <gtest/gtest.h>
 
 /* PACKAGE */
+#include "fixposition_driver_m20/status_contract.hpp"
 #include "fixposition_driver_m20/status_monitor.hpp"
 
 namespace {
 
-using fixposition::m20::ERR_ERROR;
-using fixposition::m20::ERR_OK;
-using fixposition::m20::INPUT_MISSING;
-using fixposition::m20::INPUT_OK;
+using fixposition::m20::EncodeLegacyStatus;
+using fixposition::m20::EncodeStatus;
+using fixposition::m20::EncodeV120Status;
+using fixposition::m20::InputState;
+using fixposition::m20::ParseStatusContract;
+using fixposition::m20::StatusContract;
+using fixposition::m20::StatusContractName;
 using fixposition::m20::StatusError;
+using fixposition::m20::StatusHealth;
 using fixposition::m20::StatusInput;
 using fixposition::m20::StatusMonitor;
+using fixposition::m20::StatusSnapshot;
 using fixposition::m20::StatusTimeouts;
-using fixposition::m20::TOTAL_LOST;
-using fixposition::m20::TOTAL_LOW_QUALITY;
-using fixposition::m20::TOTAL_NORMAL;
-using fixposition::m20::TOTAL_UNINITIALIZED;
+using fixposition::m20::StatusVerdict;
+using fixposition::m20::legacy::ERR_ERROR;
+using fixposition::m20::legacy::ERR_OK;
+using fixposition::m20::legacy::INPUT_MISSING;
+using fixposition::m20::legacy::INPUT_OK;
+using fixposition::m20::legacy::TOTAL_LOST;
+using fixposition::m20::legacy::TOTAL_LOW_QUALITY;
+using fixposition::m20::legacy::TOTAL_NORMAL;
+using fixposition::m20::legacy::TOTAL_UNINITIALIZED;
+
+//! What the monitor reports at @p now, in the legacy contract
+StatusSnapshot Legacy(const StatusMonitor& monitor, const double now) {
+    return EncodeLegacyStatus(monitor.Compute(now));
+}
+
+//! What the monitor reports at @p now, in the v1.2.0 contract
+StatusSnapshot V120(const StatusMonitor& monitor, const double now) { return EncodeV120Status(monitor.Compute(now)); }
+
+//! A healthy evaluation: everything monitored is fresh, nothing is held
+StatusHealth HealthyHealth() {
+    StatusHealth health;
+    health.verdict = StatusVerdict::NORMAL;
+    health.odom_stalled = false;
+    health.leg_odom_error = false;
+    health.lidar = InputState::FRESH;
+    health.imu = InputState::FRESH;
+    health.leg_odom = InputState::FRESH;
+    health.rtk = InputState::FRESH;
+    return health;
+}
+
+//! (total_status, the three exec_val flags), as ints so that a failure prints numbers
+using TotalAndExec = std::tuple<int, int, int, int>;
+TotalAndExec TotalAndExecOf(const StatusSnapshot& snapshot) {
+    return TotalAndExec{snapshot.total_status, snapshot.overtime, snapshot.numeric_error, snapshot.timestamp_error};
+}
+
+//! The four loss_val fields
+using Losses = std::tuple<int, int, int, int>;
+Losses LossesOf(const StatusSnapshot& snapshot) {
+    return Losses{snapshot.odom_error, snapshot.leg_odom_error, snapshot.matching_error, snapshot.pub_error};
+}
+
+//! The six input_val fields
+using Inputs = std::tuple<int, int, int, int, int, int>;
+Inputs InputsOf(const StatusSnapshot& snapshot) {
+    return Inputs{snapshot.lidar, snapshot.imu, snapshot.leg_odom,
+                  snapshot.rtk,   snapshot.tag, snapshot.reflective_strip};
+}
 
 //! Mark every input and the odometry alive at @p now (the monitor itself is not copyable)
 void MarkAllAlive(StatusMonitor& monitor, const double now, const bool with_matching = false) {
@@ -46,7 +105,7 @@ void MakeHealthy(StatusMonitor& monitor, const bool with_matching = false) {
 
 TEST(StatusMonitorTest, StartsUninitialized) {
     const StatusMonitor monitor{StatusTimeouts(), false};
-    const auto snapshot = monitor.Compute(0.0);
+    const auto snapshot = Legacy(monitor, 0.0);
     EXPECT_EQ(snapshot.total_status, TOTAL_UNINITIALIZED);
     EXPECT_EQ(snapshot.lidar, INPUT_MISSING);
     EXPECT_EQ(snapshot.odom_error, ERR_ERROR);
@@ -56,7 +115,7 @@ TEST(StatusMonitorTest, StartsUninitialized) {
 TEST(StatusMonitorTest, ReportsNormalWhenEverythingIsAlive) {
     StatusMonitor monitor{StatusTimeouts(), false};
     MakeHealthy(monitor);
-    const auto snapshot = monitor.Compute(1.05);
+    const auto snapshot = Legacy(monitor, 1.05);
     EXPECT_EQ(snapshot.total_status, TOTAL_NORMAL);
     EXPECT_EQ(snapshot.lidar, INPUT_OK);
     EXPECT_EQ(snapshot.imu, INPUT_OK);
@@ -73,7 +132,7 @@ TEST(StatusMonitorTest, MissingLidarIsLowQuality) {
     StatusMonitor monitor{StatusTimeouts(), false};
     MakeHealthy(monitor);
     // Past the lidar timeout (0.5 s) but within every other one
-    const auto snapshot = monitor.Compute(1.6);
+    const auto snapshot = Legacy(monitor, 1.6);
     EXPECT_EQ(snapshot.total_status, TOTAL_LOW_QUALITY);
     EXPECT_EQ(snapshot.lidar, INPUT_MISSING);
     EXPECT_EQ(snapshot.rtk, INPUT_OK);
@@ -82,7 +141,7 @@ TEST(StatusMonitorTest, MissingLidarIsLowQuality) {
 TEST(StatusMonitorTest, StalledOdometryIsLost) {
     StatusMonitor monitor{StatusTimeouts(), false};
     MakeHealthy(monitor);
-    const auto snapshot = monitor.Compute(3.0);
+    const auto snapshot = Legacy(monitor, 3.0);
     EXPECT_EQ(snapshot.total_status, TOTAL_LOST);
     EXPECT_EQ(snapshot.odom_error, ERR_ERROR);
 }
@@ -91,7 +150,7 @@ TEST(StatusMonitorTest, NumericErrorIsLost) {
     StatusMonitor monitor{StatusTimeouts(), false};
     MakeHealthy(monitor);
     monitor.MarkError(StatusError::NUMERIC, 1.0);
-    const auto snapshot = monitor.Compute(1.05);
+    const auto snapshot = Legacy(monitor, 1.05);
     EXPECT_EQ(snapshot.total_status, TOTAL_LOST);
     EXPECT_EQ(snapshot.numeric_error, ERR_ERROR);
 }
@@ -101,13 +160,13 @@ TEST(StatusMonitorTest, OvertimeIsLowQualityAndDecaysAway) {
     MakeHealthy(monitor);
     monitor.MarkError(StatusError::OVERTIME, 1.0);
 
-    const auto during = monitor.Compute(1.05);
+    const auto during = Legacy(monitor, 1.05);
     EXPECT_EQ(during.total_status, TOTAL_LOW_QUALITY);
     EXPECT_EQ(during.overtime, ERR_ERROR);
 
     // Keep the inputs alive past the 5 s error hold and the flag clears
     MarkAllAlive(monitor, 7.0);
-    const auto after = monitor.Compute(7.05);
+    const auto after = Legacy(monitor, 7.05);
     EXPECT_EQ(after.overtime, ERR_OK);
     EXPECT_EQ(after.total_status, TOTAL_NORMAL);
 }
@@ -116,15 +175,15 @@ TEST(StatusMonitorTest, MatchingIsOnlyCheckedWhenEnabled) {
     // Positioning-only mode: nothing does scan matching, so its absence is not a fault
     StatusMonitor without{StatusTimeouts(), false};
     MakeHealthy(without);
-    EXPECT_EQ(without.Compute(1.05).matching_error, ERR_OK);
-    EXPECT_EQ(without.Compute(1.05).total_status, TOTAL_NORMAL);
+    EXPECT_EQ(Legacy(without, 1.05).matching_error, ERR_OK);
+    EXPECT_EQ(Legacy(without, 1.05).total_status, TOTAL_NORMAL);
 
     // SLAM mode: matching odometry that stops arriving degrades the status
     StatusMonitor stale{StatusTimeouts(), true};
     MakeHealthy(stale, true);
-    EXPECT_EQ(stale.Compute(1.05).total_status, TOTAL_NORMAL);
+    EXPECT_EQ(Legacy(stale, 1.05).total_status, TOTAL_NORMAL);
     MarkAllAlive(stale, 2.0);  // everything but the matching odometry keeps flowing
-    const auto snapshot = stale.Compute(2.05);  // matching last seen at 1.0, timeout 0.5
+    const auto snapshot = Legacy(stale, 2.05);  // matching last seen at 1.0, timeout 0.5
     EXPECT_EQ(snapshot.matching_error, ERR_ERROR);
     EXPECT_EQ(snapshot.total_status, TOTAL_LOW_QUALITY);
 }
@@ -133,7 +192,7 @@ TEST(StatusMonitorTest, PublishFailureIsLowQuality) {
     StatusMonitor monitor{StatusTimeouts(), false};
     MakeHealthy(monitor);
     monitor.MarkError(StatusError::PUBLISH, 1.0);
-    const auto snapshot = monitor.Compute(1.05);
+    const auto snapshot = Legacy(monitor, 1.05);
     EXPECT_EQ(snapshot.pub_error, ERR_ERROR);
     EXPECT_EQ(snapshot.total_status, TOTAL_LOW_QUALITY);
 }
@@ -153,4 +212,210 @@ TEST(StatusMonitorTest, HonoursCustomTimeouts) {
     monitor.MarkRx(StatusInput::LIDAR, 1.0);
     EXPECT_TRUE(monitor.Fresh(StatusInput::LIDAR, 2.5));
     EXPECT_FALSE(monitor.Fresh(StatusInput::LIDAR, 3.5));
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+namespace {
+
+//! A loss_val or exec_val flag and what each contract sends while it is raised
+struct FlagField {
+    const char* name;
+    bool StatusHealth::* health;
+    uint8_t StatusSnapshot::* wire;
+    int legacy;
+    int v120;
+};
+
+const FlagField FLAG_FIELDS[] = {
+    {"exec_val.overtime", &StatusHealth::overtime, &StatusSnapshot::overtime, 1, 1},
+    {"exec_val.numeric_error", &StatusHealth::numeric_error, &StatusSnapshot::numeric_error, 1, 1},
+    {"exec_val.timestamp_error", &StatusHealth::timestamp_error, &StatusSnapshot::timestamp_error, 1, 1},
+    {"loss_val.odom_error", &StatusHealth::odom_stalled, &StatusSnapshot::odom_error, 1, 2},
+    {"loss_val.leg_odom_error", &StatusHealth::leg_odom_error, &StatusSnapshot::leg_odom_error, 1, 1},
+    {"loss_val.matching_error", &StatusHealth::matching_error, &StatusSnapshot::matching_error, 1, 1},
+    {"loss_val.pub_error", &StatusHealth::pub_error, &StatusSnapshot::pub_error, 1, 1},
+};
+
+//! An input_val field
+struct InputField {
+    const char* name;
+    InputState StatusHealth::* health;
+    uint8_t StatusSnapshot::* wire;
+};
+
+const InputField INPUT_FIELDS[] = {
+    {"input_val.lidar", &StatusHealth::lidar, &StatusSnapshot::lidar},
+    {"input_val.imu", &StatusHealth::imu, &StatusSnapshot::imu},
+    {"input_val.leg_odom", &StatusHealth::leg_odom, &StatusSnapshot::leg_odom},
+    {"input_val.rtk", &StatusHealth::rtk, &StatusSnapshot::rtk},
+    {"input_val.tag", &StatusHealth::tag, &StatusSnapshot::tag},
+    {"input_val.reflective_strip", &StatusHealth::reflective_strip, &StatusSnapshot::reflective_strip},
+};
+
+//! Every field of a snapshot but @p skip, as ints
+std::vector<int> FieldsExcept(const StatusSnapshot& snapshot, uint8_t StatusSnapshot::* skip) {
+    std::vector<int> values;
+    for (uint8_t StatusSnapshot::* field :
+         {&StatusSnapshot::total_status, &StatusSnapshot::overtime, &StatusSnapshot::numeric_error,
+          &StatusSnapshot::timestamp_error, &StatusSnapshot::odom_error, &StatusSnapshot::leg_odom_error,
+          &StatusSnapshot::matching_error, &StatusSnapshot::pub_error, &StatusSnapshot::lidar, &StatusSnapshot::imu,
+          &StatusSnapshot::leg_odom, &StatusSnapshot::rtk, &StatusSnapshot::tag, &StatusSnapshot::reflective_strip}) {
+        if (field != skip) {
+            values.push_back(snapshot.*field);
+        }
+    }
+    return values;
+}
+
+}  // namespace
+
+TEST(StatusContractTest, ParsesExactlyTheTwoNames) {
+    StatusContract contract = StatusContract::LEGACY;
+    EXPECT_TRUE(ParseStatusContract("v1.2.0", contract));
+    EXPECT_EQ(contract, StatusContract::V1_2_0);
+    EXPECT_TRUE(ParseStatusContract("legacy", contract));
+    EXPECT_EQ(contract, StatusContract::LEGACY);
+
+    // Anything else is refused and leaves the value alone
+    for (const char* text : {"", "v1.2", "1.2.0", "V1.2.0", "v1.2.0 ", " legacy", "Legacy", "v1.3.0", "v120"}) {
+        StatusContract untouched = StatusContract::V1_2_0;
+        EXPECT_FALSE(ParseStatusContract(text, untouched)) << '"' << text << '"';
+        EXPECT_EQ(untouched, StatusContract::V1_2_0) << '"' << text << '"';
+    }
+
+    // The name of each contract, which the module declares as the default and logs, reads back as it
+    for (const StatusContract each : {StatusContract::LEGACY, StatusContract::V1_2_0}) {
+        StatusContract parsed = (each == StatusContract::LEGACY) ? StatusContract::V1_2_0 : StatusContract::LEGACY;
+        EXPECT_TRUE(ParseStatusContract(StatusContractName(each), parsed));
+        EXPECT_EQ(parsed, each);
+    }
+}
+
+TEST(StatusContractTest, LegacyTable) {
+    // total_status: 0 uninitialized, 1 normal, 2 low quality, 3 lost
+    const std::vector<std::pair<StatusVerdict, int>> totals = {{StatusVerdict::UNINITIALIZED, 0},
+                                                               {StatusVerdict::NORMAL, 1},
+                                                               {StatusVerdict::LOW_QUALITY, 2},
+                                                               {StatusVerdict::LOST, 3}};
+    for (const auto& [verdict, expected] : totals) {
+        StatusHealth health = HealthyHealth();
+        health.verdict = verdict;
+        EXPECT_EQ(EncodeLegacyStatus(health).total_status, expected) << static_cast<int>(verdict);
+    }
+
+    // Healthy: every input 1 but the two that are not fitted, every flag 0
+    const StatusSnapshot healthy = EncodeLegacyStatus(HealthyHealth());
+    EXPECT_EQ(TotalAndExecOf(healthy), TotalAndExec(1, 0, 0, 0));
+    EXPECT_EQ(LossesOf(healthy), Losses(0, 0, 0, 0));
+    EXPECT_EQ(InputsOf(healthy), Inputs(1, 1, 1, 1, 0, 0));
+
+    // Each flag is 1 while raised, and touches no other field
+    for (const FlagField& flag : FLAG_FIELDS) {
+        StatusHealth health = HealthyHealth();
+        health.*flag.health = true;
+        const StatusSnapshot snapshot = EncodeLegacyStatus(health);
+        EXPECT_EQ(snapshot.*flag.wire, flag.legacy) << flag.name;
+        EXPECT_EQ(FieldsExcept(snapshot, flag.wire), FieldsExcept(healthy, flag.wire)) << flag.name;
+    }
+
+    // Each input is 1 while fresh and 0 otherwise, whether missing or not used at all
+    const std::vector<std::pair<InputState, int>> states = {
+        {InputState::FRESH, 1}, {InputState::MISSING, 0}, {InputState::NOT_USED, 0}};
+    for (const InputField& input : INPUT_FIELDS) {
+        for (const auto& [state, expected] : states) {
+            StatusHealth health = HealthyHealth();
+            health.*input.health = state;
+            const StatusSnapshot snapshot = EncodeLegacyStatus(health);
+            EXPECT_EQ(snapshot.*input.wire, expected) << input.name << " " << static_cast<int>(state);
+            EXPECT_EQ(FieldsExcept(snapshot, input.wire), FieldsExcept(healthy, input.wire)) << input.name;
+        }
+    }
+}
+
+TEST(StatusContractTest, V120Table) {
+    // total_status: 0 normal and 2 minor fault are usable; 3 lost and 7 initializing are not
+    const std::vector<std::pair<StatusVerdict, int>> totals = {{StatusVerdict::UNINITIALIZED, 7},
+                                                               {StatusVerdict::NORMAL, 0},
+                                                               {StatusVerdict::LOW_QUALITY, 2},
+                                                               {StatusVerdict::LOST, 3}};
+    for (const auto& [verdict, expected] : totals) {
+        StatusHealth health = HealthyHealth();
+        health.verdict = verdict;
+        EXPECT_EQ(EncodeV120Status(health).total_status, expected) << static_cast<int>(verdict);
+    }
+
+    // Healthy: every monitored input 1 (normal), the two not fitted 0 (not used), everything else 0
+    const StatusSnapshot healthy = EncodeV120Status(HealthyHealth());
+    EXPECT_EQ(TotalAndExecOf(healthy), TotalAndExec(0, 0, 0, 0));
+    EXPECT_EQ(LossesOf(healthy), Losses(0, 0, 0, 0));
+    EXPECT_EQ(InputsOf(healthy), Inputs(1, 1, 1, 1, 0, 0));
+
+    // Execution flags are 0 / 1; stopped odometry is a hard loss (2), every other loss a minor one (1)
+    for (const FlagField& flag : FLAG_FIELDS) {
+        StatusHealth health = HealthyHealth();
+        health.*flag.health = true;
+        const StatusSnapshot snapshot = EncodeV120Status(health);
+        EXPECT_EQ(snapshot.*flag.wire, flag.v120) << flag.name;
+        EXPECT_EQ(FieldsExcept(snapshot, flag.wire), FieldsExcept(healthy, flag.wire)) << flag.name;
+    }
+
+    // Inputs: 0 not used, 1 normal, 2 no data
+    const std::vector<std::pair<InputState, int>> states = {
+        {InputState::NOT_USED, 0}, {InputState::FRESH, 1}, {InputState::MISSING, 2}};
+    for (const InputField& input : INPUT_FIELDS) {
+        for (const auto& [state, expected] : states) {
+            StatusHealth health = HealthyHealth();
+            health.*input.health = state;
+            const StatusSnapshot snapshot = EncodeV120Status(health);
+            EXPECT_EQ(snapshot.*input.wire, expected) << input.name << " " << static_cast<int>(state);
+            EXPECT_EQ(FieldsExcept(snapshot, input.wire), FieldsExcept(healthy, input.wire)) << input.name;
+        }
+    }
+}
+
+TEST(StatusContractTest, EncodeStatusFollowsTheContract) {
+    const StatusHealth healthy = HealthyHealth();
+    EXPECT_EQ(EncodeStatus(StatusContract::LEGACY, healthy).total_status, 1);
+    EXPECT_EQ(EncodeStatus(StatusContract::V1_2_0, healthy).total_status, 0);
+    StatusHealth starting;
+    EXPECT_EQ(InputsOf(EncodeStatus(StatusContract::LEGACY, starting)), Inputs(0, 0, 0, 0, 0, 0));
+    EXPECT_EQ(InputsOf(EncodeStatus(StatusContract::V1_2_0, starting)), Inputs(2, 2, 2, 2, 0, 0));
+}
+
+TEST(StatusContractTest, V120ReportsWhatTheMonitorSees) {
+    // From a cold start: initializing, no data from any monitored input, the odometry a hard loss
+    const StatusMonitor cold{StatusTimeouts(), false};
+    const StatusSnapshot start = V120(cold, 0.0);
+    EXPECT_EQ(TotalAndExecOf(start), TotalAndExec(7, 0, 0, 0));
+    EXPECT_EQ(LossesOf(start), Losses(2, 1, 0, 0));
+    EXPECT_EQ(InputsOf(start), Inputs(2, 2, 2, 2, 0, 0));
+
+    // Everything alive: normal
+    StatusMonitor monitor{StatusTimeouts(), false};
+    MakeHealthy(monitor);
+    EXPECT_EQ(TotalAndExecOf(V120(monitor, 1.05)), TotalAndExec(0, 0, 0, 0));
+    EXPECT_EQ(LossesOf(V120(monitor, 1.05)), Losses(0, 0, 0, 0));
+    EXPECT_EQ(InputsOf(V120(monitor, 1.05)), Inputs(1, 1, 1, 1, 0, 0));
+
+    // The lidar silent past its timeout: a minor fault, still usable, the lidar without data
+    EXPECT_EQ(V120(monitor, 1.6).total_status, 2);
+    EXPECT_EQ(V120(monitor, 1.6).lidar, 2);
+
+    // A held numeric error: lost
+    monitor.MarkError(StatusError::NUMERIC, 1.0);
+    EXPECT_EQ(TotalAndExecOf(V120(monitor, 1.05)), TotalAndExec(3, 0, 1, 0));
+
+    // The odometry stalled: lost, a hard loss
+    StatusMonitor stalled{StatusTimeouts(), false};
+    MakeHealthy(stalled);
+    EXPECT_EQ(V120(stalled, 3.0).total_status, 3);
+    EXPECT_EQ(V120(stalled, 3.0).odom_error, 2);
+
+    // Monitored scan matching gone quiet: a minor loss and a minor fault
+    StatusMonitor matching{StatusTimeouts(), true};
+    MakeHealthy(matching, true);
+    MarkAllAlive(matching, 2.0);
+    EXPECT_EQ(V120(matching, 2.05).matching_error, 1);
+    EXPECT_EQ(V120(matching, 2.05).total_status, 2);
 }

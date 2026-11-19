@@ -74,48 +74,50 @@ bool StatusMonitor::ErrorActive(const StatusError error, const double now) const
     return (last > NEVER) && ((now - last) <= timeouts_.error_hold);
 }
 
-StatusSnapshot StatusMonitor::Compute(const double now) const {
-    StatusSnapshot snapshot;
+InputState StatusMonitor::Monitored(const StatusInput input, const double now) const {
+    return Fresh(input, now) ? InputState::FRESH : InputState::MISSING;
+}
+
+StatusHealth StatusMonitor::Compute(const double now) const {
+    StatusHealth health;
 
     // Inputs
-    snapshot.lidar = Fresh(StatusInput::LIDAR, now) ? INPUT_OK : INPUT_MISSING;
-    snapshot.imu = Fresh(StatusInput::IMU, now) ? INPUT_OK : INPUT_MISSING;
-    snapshot.leg_odom = Fresh(StatusInput::LEG_ODOM, now) ? INPUT_OK : INPUT_MISSING;
-    snapshot.rtk = Fresh(StatusInput::RTK, now) ? INPUT_OK : INPUT_MISSING;
+    health.lidar = Monitored(StatusInput::LIDAR, now);
+    health.imu = Monitored(StatusInput::IMU, now);
+    health.leg_odom = Monitored(StatusInput::LEG_ODOM, now);
+    health.rtk = Monitored(StatusInput::RTK, now);
     // Neither is fitted on this robot
-    snapshot.tag = INPUT_MISSING;
-    snapshot.reflective_strip = INPUT_MISSING;
+    health.tag = InputState::NOT_USED;
+    health.reflective_strip = InputState::NOT_USED;
 
     // Losses
     const double last_odom = last_odom_alive_.load();
     const bool odom_flowing = (last_odom > NEVER) && ((now - last_odom) <= timeouts_.rtk);
-    snapshot.odom_error = odom_flowing ? ERR_OK : ERR_ERROR;
-    snapshot.leg_odom_error = Fresh(StatusInput::LEG_ODOM, now) ? ERR_OK : ERR_ERROR;
+    health.odom_stalled = !odom_flowing;
+    health.leg_odom_error = !Fresh(StatusInput::LEG_ODOM, now);
     // Positioning-only mode does no scan matching, so there is nothing that could fail
-    snapshot.matching_error =
-        matching_enabled_ ? (Fresh(StatusInput::MATCHING, now) ? ERR_OK : ERR_ERROR) : ERR_OK;
-    snapshot.pub_error = ErrorActive(StatusError::PUBLISH, now) ? ERR_ERROR : ERR_OK;
+    health.matching_error = matching_enabled_ && !Fresh(StatusInput::MATCHING, now);
+    health.pub_error = ErrorActive(StatusError::PUBLISH, now);
 
     // Execution
-    snapshot.overtime = ErrorActive(StatusError::OVERTIME, now) ? ERR_ERROR : ERR_OK;
-    snapshot.numeric_error = ErrorActive(StatusError::NUMERIC, now) ? ERR_ERROR : ERR_OK;
-    snapshot.timestamp_error = ErrorActive(StatusError::TIMESTAMP, now) ? ERR_ERROR : ERR_OK;
+    health.overtime = ErrorActive(StatusError::OVERTIME, now);
+    health.numeric_error = ErrorActive(StatusError::NUMERIC, now);
+    health.timestamp_error = ErrorActive(StatusError::TIMESTAMP, now);
 
-    // Verdict
+    // Verdict. Only a missing input degrades it; one this configuration does not use never does.
+    const auto missing = [](const InputState state) { return state == InputState::MISSING; };
     if (!initialized_.load()) {
-        snapshot.total_status = TOTAL_UNINITIALIZED;
-    } else if (!odom_flowing || (snapshot.numeric_error == ERR_ERROR)) {
-        snapshot.total_status = TOTAL_LOST;
-    } else if ((snapshot.overtime == ERR_ERROR) || (snapshot.timestamp_error == ERR_ERROR) ||
-               (snapshot.matching_error == ERR_ERROR) || (snapshot.pub_error == ERR_ERROR) ||
-               (snapshot.lidar == INPUT_MISSING) || (snapshot.imu == INPUT_MISSING) ||
-               (snapshot.rtk == INPUT_MISSING) || (snapshot.leg_odom == INPUT_MISSING)) {
-        snapshot.total_status = TOTAL_LOW_QUALITY;
+        health.verdict = StatusVerdict::UNINITIALIZED;
+    } else if (!odom_flowing || health.numeric_error) {
+        health.verdict = StatusVerdict::LOST;
+    } else if (health.overtime || health.timestamp_error || health.matching_error || health.pub_error ||
+               missing(health.lidar) || missing(health.imu) || missing(health.rtk) || missing(health.leg_odom)) {
+        health.verdict = StatusVerdict::LOW_QUALITY;
     } else {
-        snapshot.total_status = TOTAL_NORMAL;
+        health.verdict = StatusVerdict::NORMAL;
     }
 
-    return snapshot;
+    return health;
 }
 
 /* ****************************************************************************************************************** */
