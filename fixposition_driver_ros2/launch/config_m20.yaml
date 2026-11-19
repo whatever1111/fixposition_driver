@@ -74,7 +74,9 @@
             # OEM handler compatibility: the native handler safety gate subscribes the legacy
             # /LIO_ODOM + /cloud_nav interface (discovered in the 2026-08-10/11 0x312 field
             # investigation), NOT the /ODOM triplet. These publish the same odometry and deskewed
-            # cloud under the legacy names with reliable QoS. Empty string disables one.
+            # cloud under the legacy names with reliable QoS. Empty string disables one. OEM
+            # firmware 120 publishes both topics itself: set both empty there, together with
+            # status_contract "v1.2.0".
             handler_odom_topic: "/LIO_ODOM"
             handler_cloud_topic: "/cloud_nav"
             handler_depth: 10
