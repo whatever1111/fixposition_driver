@@ -177,14 +177,6 @@ bool LoadM20ParamsFromRos2(std::shared_ptr<rclcpp::Node>& nh, M20Params& params)
         RCLCPP_ERROR(logger, "m20.location_status_rate_hz must be > 0, got %.3f", params.location_status_rate_hz);
         ok = false;
     }
-    std::string status_contract = StatusContractName(params.status_contract);
-    load_string("m20.status_contract", status_contract);
-    if (!ParseStatusContract(status_contract, params.status_contract)) {
-        RCLCPP_ERROR(logger, "m20.status_contract must be \"%s\" or \"%s\", got \"%s\"",
-                     StatusContractName(StatusContract::LEGACY), StatusContractName(StatusContract::V1_2_0),
-                     status_contract.c_str());
-        ok = false;
-    }
     load_string("m20.initialpose_topic", params.initialpose_topic);
     load_double("m20.initialpose_settle_sec", params.timeouts.initialpose_settle);
     if (!std::isfinite(params.timeouts.initialpose_settle) || !(params.timeouts.initialpose_settle > 0.0)) {
@@ -287,8 +279,7 @@ bool M20Localization::Start() {
             params_.matching_odom_topic, input_qos,
             [this](nav_msgs::msg::Odometry::ConstSharedPtr) { status_.MarkRx(StatusInput::MATCHING, SteadyNow()); });
     }
-    // Only the v1.2.0 contract has an initializing state to report an initial pose with
-    if ((params_.status_contract == StatusContract::V1_2_0) && !params_.initialpose_topic.empty()) {
+    if (!params_.initialpose_topic.empty()) {
         const rclcpp::QoS initialpose_qos =
             rclcpp::QoS(rclcpp::KeepLast(INITIALPOSE_DEPTH)).reliable().durability_volatile();
         initialpose_sub_ = nh_->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
@@ -299,8 +290,8 @@ bool M20Localization::Start() {
     RCLCPP_INFO(logger_, "M20: deskewing %s -> %s (frame \"%s\", gyro %s, deskew %s, reference = newest %s stamp)",
                 params_.lidar_topic.c_str(), params_.loc_body_points_topic.c_str(), params_.loc_body_frame_id.c_str(),
                 params_.imu_topic.c_str(), params_.deskew_enable ? "on" : "off", params_.odom_topic.c_str());
-    RCLCPP_INFO(logger_, "M20: publishing %s at %.2f Hz, status contract %s", params_.location_status_topic.c_str(),
-                params_.location_status_rate_hz, StatusContractName(params_.status_contract));
+    RCLCPP_INFO(logger_, "M20: publishing %s at %.2f Hz, OEM status numbering v1.2.0",
+                params_.location_status_topic.c_str(), params_.location_status_rate_hz);
     if (initialpose_sub_) {
         RCLCPP_INFO(logger_, "M20: an initial pose on %s is reported as initializing until %s has flowed for %.1f s",
                     params_.initialpose_topic.c_str(), params_.odom_topic.c_str(), params_.timeouts.initialpose_settle);
@@ -740,7 +731,7 @@ void M20Localization::PublishStatus(const Stamp& stamp) {
     if (!status_pub_) {
         return;
     }
-    const StatusSnapshot snapshot = EncodeStatus(params_.status_contract, status_.Compute(SteadyNow()));
+    const StatusSnapshot snapshot = EncodeStatus(status_.Compute(SteadyNow()));
 
     drdds::msg::LocationStatus msg;
     // Note the OEM's naming: LocationStatus carries "meta" where MotionInfo carries "header"

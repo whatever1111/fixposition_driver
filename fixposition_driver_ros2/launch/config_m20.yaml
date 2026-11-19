@@ -75,8 +75,7 @@
             # /LIO_ODOM + /cloud_nav interface (discovered in the 2026-08-10/11 0x312 field
             # investigation), NOT the /ODOM triplet. These publish the same odometry and deskewed
             # cloud under the legacy names with reliable QoS. Empty string disables one. OEM
-            # firmware 120 publishes both topics itself: set both empty there, together with
-            # status_contract "v1.2.0".
+            # firmware 120 publishes both topics itself: set both empty there.
             handler_odom_topic: "/LIO_ODOM"
             handler_cloud_topic: "/cloud_nav"
             handler_depth: 10
@@ -99,13 +98,10 @@
             # Health reporting
             location_status_topic: "/LOCATION_STATUS"
             location_status_rate_hz: 2.0     # OEM contract
-            # The numbering the robot's OEM firmware expects (see M20.md): "legacy" (0 uninitialized,
-            # 1 normal, 2 low quality, 3 lost) or "v1.2.0" (0 normal, 2 minor fault, 3 lost,
-            # 7 initializing). Anything else fails startup.
-            status_contract: "legacy"
-            # v1.2.0 only: after each initial pose report 7 until the followed odometry has flowed
-            # without a break for initialpose_settle_sec (finite, > 0). Empty topic disables;
-            # the legacy contract subscribes nothing.
+            # In the numbering of the OEM's specification v1.2.0 (firmware 120 and later, see M20.md):
+            # total_status 0 normal, 2 minor fault, 3 lost, 7 initializing.
+            # After each initial pose report 7 until the followed odometry has flowed without a
+            # break for initialpose_settle_sec (finite, > 0). Empty topic disables.
             initialpose_topic: "/initialpose"
             initialpose_settle_sec: 2.0
             matching_odom_topic: ""          # set in SLAM mode to monitor scan-matching health
