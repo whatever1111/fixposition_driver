@@ -15,6 +15,7 @@
 #include <vector>
 
 /* PACKAGE */
+#include "fixposition_driver_m20/status_contract.hpp"
 #include "fixposition_driver_m20/status_monitor.hpp"
 
 namespace fixposition {
@@ -80,6 +81,8 @@ struct M20Params {
     std::string location_status_topic = "/LOCATION_STATUS";
     //! OEM contract: 2 Hz
     double location_status_rate_hz = 2.0;
+    //! The numbering the status goes out in (status_contract.hpp), which the robot's OEM firmware decides
+    StatusContract status_contract = StatusContract::LEGACY;
     //! Scan-matching odometry to monitor in SLAM mode; empty disables the matching health check
     std::string matching_odom_topic = "";
 

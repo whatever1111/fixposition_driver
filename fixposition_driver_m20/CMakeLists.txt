@@ -21,6 +21,7 @@ find_package(drdds REQUIRED)
 # BUILD ================================================================================================================
 add_library(${PROJECT_NAME} SHARED
     src/deskew.cpp
+    src/status_contract.cpp
     src/status_monitor.cpp
     src/time_utils.cpp
     src/m20_localization.cpp
@@ -75,11 +76,16 @@ if(BUILD_TESTING)
     # the pure sources alone and does not link the module library, so that it stays that way.
     ament_add_gtest(test_odometry_source_policy
         test/test_odometry_source_policy.cpp
+        src/status_contract.cpp
         src/status_monitor.cpp
     )
     target_include_directories(test_odometry_source_policy PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
+
+    # The module on a real node; brings up rclcpp in its own main()
+    ament_add_gtest(test_m20_localization test/test_m20_localization.cpp SKIP_LINKING_MAIN_LIBRARIES TIMEOUT 60)
+    target_link_libraries(test_m20_localization ${PROJECT_NAME})
 endif()
 
 ament_package()

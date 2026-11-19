@@ -169,7 +169,7 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash && \
         --event-handlers console_direct+ && \
     colcon test-result --all --verbose | tee /w/test-result.txt && \
     for t in test_deskew test_status_monitor test_time_utils test_odometry_source_policy \
-             fixposition_driver_lib_tcp_reconnect_test; do \
+             test_m20_localization fixposition_driver_lib_tcp_reconnect_test; do \
         if ! grep -E "/${t}\.gtest\.xml: [1-9][0-9]* tests?, 0 errors, 0 failures, 0 skipped" \
                 /w/test-result.txt; then \
             echo "m20 tests: no clean result for ${t}"; exit 1; \
