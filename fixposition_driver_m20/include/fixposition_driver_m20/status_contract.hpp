@@ -113,12 +113,15 @@ struct StatusSnapshot {
  * @brief The legacy contract's values
  *
  * The contract has no "not used" input: an input that is not fresh is reported missing, whatever the
- * reason.
+ * reason. Nor does it have an initializing state: StatusHealth::initializing is not part of it.
  */
 StatusSnapshot EncodeLegacyStatus(const StatusHealth& health);
 
 /**
  * @brief The v1.2.0 contract's values
+ *
+ * While StatusHealth::initializing is set, total_status is 7 whatever the verdict; the other fields
+ * are unaffected.
  */
 StatusSnapshot EncodeV120Status(const StatusHealth& health);
 
