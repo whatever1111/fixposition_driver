@@ -12,7 +12,7 @@
  *                     stamp, so its header stamp is that of a real /ODOM message. Runs in a worker
  *                     thread (latest scan wins) so a slow scan never stalls the odometry.
  *   /LOCATION_STATUS  drdds/LocationStatus at 2 Hz, sharing the same stamp, reporting input liveness
- *                     and execution health.
+ *                     and execution health in the numbering m20.status_contract selects.
  *
  * The module also feeds the robot's leg odometry (drdds/MotionInfo) back to the positioning sensor
  * as wheelspeed aiding, which is what the separate Python bridge used to do.
@@ -51,6 +51,7 @@
 #include "fixposition_driver_m20/deskew.hpp"
 #include "fixposition_driver_m20/m20_params.hpp"
 #include "fixposition_driver_m20/odometry_source_policy.hpp"
+#include "fixposition_driver_m20/status_contract.hpp"
 #include "fixposition_driver_m20/status_monitor.hpp"
 #include "fixposition_driver_m20/time_utils.hpp"
 
